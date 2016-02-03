@@ -10,9 +10,9 @@ Vagrant-automated Ubuntu 15.04 deployment that contains essential OpenStack CLI 
 -  [Workstation and Fusion Vagrant Plugins](https://www.vagrantup.com/vmware/)
 
 ## Usage:
-1.  Clone the repo: ```git clone https://github.com/VMTrooper/openstack-client.git```
-2.  Change to the **openstack-client** directory and Vagrant up! ```vagrant up```
-3.  Wait for the provisioning shell script to complete. You will eventually see some **apt-get** output.
+1.  Clone the repo: ```git clone https://github.com/vmware/vio.git```
+2.  Change to the **vio/util/openstack-client** directory and Vagrant up! ```vagrant up```
+3.  Wait for the provisioning shell script to complete (You will eventually see some **apt-get** output at it completes).
 4.  Connect to the VM ```vagrant ssh```
 5.  Download your openrc file from your OpenStack cloud. Here is a sample
 ```
