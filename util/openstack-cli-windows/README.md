@@ -13,7 +13,7 @@ pip install python-novaclient python-glanceclient python-neutronclient python-ci
 ## Usage:
 1.  Clone the repo: ```git clone https://github.com/vmware/vio.git```
 2.  Download your openrc file from your own tenant on your group's OpenStack cloud.
-3.  Change to the **vio/util/openstack-cli-on-windows** directory and edit the **openstack-cli-env.ps1** file with the values from the openrc file.
+3.  Change to the **vio/util/openstack-cli-windows** directory and edit the **openstack-cli-env.ps1** file with the values from the openrc file.
 4.  Run the **openstack-cli-env.ps1** in a PowerShell window and execute your OpenStack commands as you normally would
 **NOTE** Using multiple lines for your OpenStack CLI commands will require a backtick (`) instead of a backslash (\\)
 ```
