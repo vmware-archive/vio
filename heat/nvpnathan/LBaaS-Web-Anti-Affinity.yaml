@@ -1,0 +1,304 @@
+heat_template_version: 2013-05-23
+
+description: |
+  A simple Heat template that spins up a 3 Tier App with 1 Load Balancer, 2 Web Servers, 1 App Server,
+  and 1 DB Server on logical networks and attaches them to security groups (HOT template in YAML).
+
+parameters:
+  external_network_id:
+    type: string
+    label: ext-net
+    description: UUID of a Neutron external network
+    default: fdb92e61-75e4-47ef-9b74-557af5b6147d
+
+  web_image:
+    type: string
+    description: Name of image to use for servers
+    default: ubuntu-14.04-server-amd64
+
+  app_image:
+    type: string
+    description: Name of image to use for servers
+    default: ubuntu-14.04-server-amd64
+
+  db_image:
+    type: string
+    description: Name of image to use for servers
+    default: ubuntu-14.04-server-amd64
+
+
+resources:
+  # Create the web logical switch and configure DHCP.
+  web_network_01:
+    type: OS::Neutron::Net
+    properties:
+      admin_state_up: true
+      name: web-network-01
+  web_subnet_01:
+    type: OS::Neutron::Subnet
+    properties:
+      name: web-subnet-01
+      cidr: 172.16.10.0/24
+      dns_nameservers: [192.168.110.10]
+      enable_dhcp: true
+      gateway_ip: 172.16.10.1
+      network_id: { get_resource: web_network_01 }
+
+  # Create the app logical switch and configure DHCP.
+  app_network_01:
+    type: OS::Neutron::Net
+    properties:
+      admin_state_up: true
+      name: app-network-01
+  app_subnet_01:
+    type: OS::Neutron::Subnet
+    properties:
+      name: app-subnet-01
+      cidr: 172.16.20.0/24
+      dns_nameservers: [192.168.110.10]
+      enable_dhcp: true
+      gateway_ip: 172.16.20.1
+      network_id: { get_resource: app_network_01 }
+
+  # Create the db logical switch and configure DHCP.
+  db_network_01:
+    type: OS::Neutron::Net
+    properties:
+      admin_state_up: true
+      name: db-network-01
+  db_subnet_01:
+    type: OS::Neutron::Subnet
+    properties:
+      name: db-subnet-01
+      cidr: 172.16.30.0/24
+      dns_nameservers: [192.168.110.10]
+      enable_dhcp: true
+      gateway_ip: 172.16.30.1
+      network_id: { get_resource: db_network_01 }
+
+  # Create router, add internal interfaces for 3 tiers, and also an uplink.
+  heat_router_01:
+    type: OS::Neutron::Router
+    properties:
+      admin_state_up: true
+      name: heat-router-01
+      value_specs: {router_type: exclusive}
+  heat_router_01_gw:
+    type: OS::Neutron::RouterGateway
+    properties:
+      network_id: {get_param: external_network_id}
+      router_id: { get_resource: heat_router_01 }
+  heat_router_int0:
+    type: OS::Neutron::RouterInterface
+    properties:
+      router_id: { get_resource: heat_router_01 }
+      subnet_id: { get_resource: web_subnet_01 }
+  heat_router_int1:
+    type: OS::Neutron::RouterInterface
+    properties:
+      router_id: { get_resource: heat_router_01 }
+      subnet_id: { get_resource: app_subnet_01 }
+  heat_router_int2:
+    type: OS::Neutron::RouterInterface
+    properties:
+      router_id: { get_resource: heat_router_01 }
+      subnet_id: { get_resource: db_subnet_01 }
+
+  # Create security groups for the tiers.
+  db_security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      description: Allow sql traffic from web tier
+      name: db-security-group
+      rules:
+        - remote_ip_prefix: { get_attr: [ app_subnet_01, cidr ] }
+          protocol: tcp
+          port_range_min: 3306
+          port_range_max: 3306
+
+  web_security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      description: Allow web traffic from anywhere
+      name: web-security-group
+      rules:
+        - remote_ip_prefix: 0.0.0.0/0
+          protocol: tcp
+          port_range_min: 80
+          port_range_max: 80
+        - remote_ip_prefix: 0.0.0.0/0
+          protocol: tcp
+          port_range_min: 22
+          port_range_max: 22
+
+  app_security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      description: Allow app traffic from web tier
+      name: app-security-group
+      rules:
+        - remote_ip_prefix: { get_attr: [ web_subnet_01, cidr ] }
+          protocol: tcp
+          port_range_min: 8443
+          port_range_max: 8443
+
+  # Create ports on web switch.
+  web-svr-01_port0:
+    type: OS::Neutron::Port
+    properties:
+      admin_state_up: true
+      network_id: { get_resource: web_network_01 }
+      security_groups:
+        - { get_resource: web_security_group }
+  web-svr-01_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: {get_param: external_network_id}
+      port_id: { get_resource: web-svr-01_port0 }
+
+  web-svr-02_port0:
+    type: OS::Neutron::Port
+    properties:
+      admin_state_up: true
+      network_id: { get_resource: web_network_01 }
+      security_groups:
+        - { get_resource: web_security_group }
+  web-svr-02_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: {get_param: external_network_id}
+      port_id: { get_resource: web-svr-02_port0 }
+
+  # Create port(s) on app switch.
+  app-svr-01_port0:
+    type: OS::Neutron::Port
+    properties:
+      admin_state_up: true
+      network_id: { get_resource: app_network_01 }
+      security_groups:
+        - { get_resource: app_security_group }
+
+  # Create port(s) on db switch.
+  db-svr-01_port0:
+    type: OS::Neutron::Port
+    properties:
+      admin_state_up: true
+      network_id: { get_resource: db_network_01 }
+      security_groups:
+        - { get_resource: db_security_group }
+
+  # Create the Anti-affinity Group
+  policy_group:
+    type: OS::Nova::ServerGroup
+    properties:
+      name: web-anti-affinity
+      policies: [anti-affinity]
+
+  # Provision instances.
+  db-svr-01:
+    type: OS::Nova::Server
+    properties:
+      name: db-instance-01
+      image: { get_param: db_image }
+      flavor: m1.small
+      networks:
+        - port: { get_resource: db-svr-01_port0 }
+
+  app-svr-01:
+    type: OS::Nova::Server
+    depends_on: db-svr-01
+    properties:
+      name: app-instance-01
+      image: { get_param: app_image }
+      flavor: m1.small
+      networks:
+        - port: { get_resource: app-svr-01_port0 }
+      user_data:
+        str_replace:
+          params:
+            __db_ipaddr__: { get_attr: [db-svr-01, first_address] }
+          template: |
+            #!/bin/bash
+            sed -i 's/##HOT_DB_SERVER##/__db_ipaddr__/' /var/www/cgi-bin/nsx-webapp.cgi
+
+  web-svr-01:
+    type: OS::Nova::Server
+    depends_on: app-svr-01
+    properties:
+      name: web-instance-01
+      image: { get_param: web_image }
+      flavor: m1.small
+      scheduler_hints: {group: {get_resource: policy_group}}
+      networks:
+        - port: { get_resource: web-svr-01_port0 }
+      user_data:
+        str_replace:
+          params:
+            __app_ipaddr__: { get_attr: [ app-svr-01, first_address ] }
+          template: |
+            #!/bin/bash
+            sed -i 's/##HOT_APP_SERVER##/__app_ipaddr__/g' /etc/apache2/sites-enabled/000-default.conf
+            service apache2 restart
+
+  web-svr-02:
+    type: OS::Nova::Server
+    depends_on: app-svr-01
+    properties:
+      name: web-instance-02
+      image: { get_param: web_image }
+      flavor: m1.small
+      scheduler_hints: {group: {get_resource: policy_group}}
+      networks:
+        - port: { get_resource: web-svr-02_port0 }
+      user_data:
+        str_replace:
+          params:
+            __app_ipaddr__: { get_attr: [ app-svr-01, first_address ] }
+          template: |
+            #!/bin/bash
+            sed -i 's/##HOT_APP_SERVER##/__app_ipaddr__/g' /etc/apache2/sites-enabled/000-default.conf
+            service apache2 restart
+
+  monitor:
+    type: OS::Neutron::HealthMonitor
+    properties:
+      type: TCP
+      delay: 10
+      max_retries: 5
+      timeout: 10
+
+  pool:
+    type: OS::Neutron::Pool
+    depends_on: heat_router_int0
+    properties:
+      name: mypool
+      protocol: HTTP
+      monitors: [{get_resource: monitor}]
+      subnet_id: {get_resource: web_subnet_01}
+      lb_method: ROUND_ROBIN
+      vip:
+        protocol_port: 80
+
+  lb:
+    type: OS::Neutron::LoadBalancer
+    properties:
+      members: [ { get_resource: web-svr-01 }, { get_resource: web-svr-02 } ]
+      protocol_port: 80
+      pool_id: { get_resource: pool }
+
+  lb_floating:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: { get_param: external_network_id }
+      port_id: { get_attr: [ pool, vip, port_id ] }
+
+outputs:
+  lb_vip_ip:
+    description: LB VIP
+    value: { get_attr: [ lb_floating, floating_ip_address ] }
+  web-svr-01_public_ip:
+    description: Floating IP address of web-svr-01 in public network
+    value: { get_attr: [ web-svr-01_floating_ip, floating_ip_address ] }
+  web-svr-02_public_ip:
+    description: Floating IP address of web-svr-01 in public network
+    value: { get_attr: [ web-svr-02_floating_ip, floating_ip_address ] }
