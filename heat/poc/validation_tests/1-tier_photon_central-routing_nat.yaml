@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 heat_template_version: 2013-05-23
 
 description: |
@@ -118,3 +119,6 @@ outputs:
   container0_public_ip:
     description: Floating IP address of Container0 on the public network
     value: { get_attr: [ container0_floating_ip, floating_ip_address ] }
+=======
+
+>>>>>>> 517a3af1c4717e45195ef9a37d81d472c90f67ea
