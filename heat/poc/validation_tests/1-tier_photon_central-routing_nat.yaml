@@ -1,7 +1,9 @@
 heat_template_version: 2013-05-23
 
 description: |
-  Sample heat template to deploy container into Photon instance.
+  Sample heat template to deploy container into Photon instance. This template requires external internet access
+  to pull the container for the template. Please ensure DNS settings are correct.
+
 parameters:
 
   external_network_id:
@@ -48,11 +50,7 @@ resources:
     properties:
       admin_state_up: true
       name: app-router-01
-  app_router_01_gw:
-    type: OS::Neutron::RouterGateway
-    properties:
-      network_id: {get_param: external_network_id}
-      router_id: { get_resource: app_router_01 }
+      external_gateway_info: { "network": { get_param: external_network_id }}
   app_router_int0:
     type: OS::Neutron::RouterInterface
     properties:

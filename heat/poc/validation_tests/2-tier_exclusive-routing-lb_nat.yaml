@@ -71,11 +71,7 @@ resources:
       admin_state_up: true
       name: app-router-01
       value_specs: {router_type: exclusive}
-  app_router_01_gw:
-    type: OS::Neutron::RouterGateway
-    properties:
-      network_id: {get_param: external_network_id}
-      router_id: { get_resource: app_router_01 }
+      external_gateway_info: { "network": { get_param: external_network_id }}
   app_router_int0:
     type: OS::Neutron::RouterInterface
     properties:
@@ -235,7 +231,7 @@ outputs:
     description: URL for manager
     value:
       str_replace:
-        template: http://host/index.php
+        template: http://host/
         params:
           host: { get_attr: [ lb_floating, floating_ip_address ] }
 
