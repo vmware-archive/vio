@@ -88,11 +88,7 @@ resources:
       name: heat-router-01
       admin_state_up: true
       distributed: true
-  heat_router_01_gw:
-    type: OS::Neutron::RouterGateway
-    properties:
-      network_id: {get_param: external_network_id}
-      router_id: { get_resource: heat_router_01 }
+      external_gateway_info: { "network": { get_param: external_network_id }}
   heat_router_int0:
     type: OS::Neutron::RouterInterface
     properties:
