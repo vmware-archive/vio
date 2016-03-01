@@ -86,13 +86,9 @@ resources:
     type: OS::Neutron::Router
     properties:
       name: heat-router-01
+      value_specs: {router_type: exclusive}
       admin_state_up: true
-  heat_router_01_gw:
-    type: OS::Neutron::RouterGateway
-    properties:
-      network_id: {get_param: external_network_id}
-      external_gateway_info: {"network": { get_param: external_network_id }}
-      router_id: { get_resource: heat_router_01 }
+      external_gateway_info: { "enable_snat": false, "network": { get_param: external_network_id }}
   heat_router_int0:
     type: OS::Neutron::RouterInterface
     properties:
@@ -155,11 +151,6 @@ resources:
       network_id: { get_resource: web_network_01 }
       security_groups:
         - { get_resource: web_security_group }
-  web-svr-01_floating_ip:
-    type: OS::Neutron::FloatingIP
-    properties:
-      floating_network_id: {get_param: external_network_id}
-      port_id: { get_resource: web-svr-01_port0 }
 
   # Create port(s) on app switch.
   app-svr-01_port0:
@@ -213,6 +204,3 @@ outputs:
   web-svr-01_private_ip:
     description: IP address of web-svr-01 in private network
     value: { get_attr: [ web-svr-01, first_address ] }
-  web-svr-01_public_ip:
-    description: Floating IP address of web-svr-01 in public network
-    value: { get_attr: [ web-svr-01_floating_ip, floating_ip_address ] }
