@@ -1,0 +1,120 @@
+heat_template_version: 2013-05-23
+
+description: |
+  Sample heat template to deploy container into Photon instance.
+parameters:
+
+  external_network_id:
+    type: string
+    label: ext-net
+    description: UUID of a Neutron external network
+    default: fdb92e61-75e4-47ef-9b74-557af5b6147d
+
+  container_image:
+    type: string
+    description: Name of image to use for servers
+    default: photon
+
+  container_name:
+    type: string
+    description: Name of Docker Hub container to use
+    default: vmwarecna/nginx
+
+  flavor:
+    type: string
+    label: Flavor
+    description: Type of instance (flavor) to be used on the compute instance.
+    default: m1.small
+
+  dns_server:
+    type: string
+    label: DNS Server
+    description: Tenant network DNS Server
+    default: 8.8.8.8
+
+resources:
+  # Create the web logical switch and configure DHCP.
+  container_net0:
+    type: OS::Neutron::Net
+    properties:
+      admin_state_up: true
+      name: container-net0
+  container_subnet_0:
+    type: OS::Neutron::Subnet
+    properties:
+      name: container-subnet0
+      cidr: 192.168.41.0/24
+      dns_nameservers:
+        - { get param: dns_server }
+      enable_dhcp: true
+      gateway_ip: 192.168.41.1
+      network_id: { get_resource: container_net0 }
+  # Create the router, add internal container interface, and add router uplink
+  app_router_01:
+    type: OS::Neutron::Router
+    properties:
+      admin_state_up: true
+      name: app-router-01
+  app_router_01_gw:
+    type: OS::Neutron::RouterGateway
+    properties:
+      network_id: {get_param: external_network_id}
+      router_id: { get_resource: app_router_01 }
+  app_router_int0:
+    type: OS::Neutron::RouterInterface
+    properties:
+      router_id: { get_resource: app_router_01 }
+      subnet_id: { get_resource: container_subnet_0 }
+  # Create the containers security group
+  container_security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      description: Allow web and SSH traffic from anywhere
+      name: container-security-group
+      rules:
+        - remote_ip_prefix: 0.0.0.0/0
+          protocol: tcp
+          port_range_min: 80
+          port_range_max: 80
+        - remote_ip_prefix: 0.0.0.0/0
+          protocol: tcp
+          port_range_min: 22
+          port_range_max: 22
+  # Create port(s) on container logical network.
+  container0_port0:
+    type: OS::Neutron::Port
+    properties:
+      admin_state_up: true
+      network_id: { get_resource: container_net0 }
+      security_groups:
+        - { get_resource: container_security_group }
+  # Provision instance
+  container0:
+    type: OS::Nova::Server
+    properties:
+      name: Photon-Container0
+      image: { get_param: container_image }
+      flavor: { get_param: flavor }
+      networks:
+        - port: { get_resource: container0_port0 }
+      user_data_format: RAW
+      user_data:
+        str_replace:
+          params:
+            __container__: { get_param: container_name }
+          template: |
+            #!/bin/bash
+            set -ux
+
+            docker pull __container__
+            docker run -d -p 80:80 __container__
+  # Attach floating IP
+  container0_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: { get_param: external_network_id }
+      port_id: { get_resource: container0_port0 }
+outputs:
+  container0_public_ip:
+    description: Floating IP address of Container0 on the public network
+    value: { get_attr: [ container0_floating_ip, floating_ip_address ] }
