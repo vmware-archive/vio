@@ -26,12 +26,6 @@ parameters:
     description: Type of instance (flavor) to be used on the compute instance.
     default: m1.small
 
-  dns_server:
-    type: string
-    label: DNS Server
-    description: Tenant network DNS Server
-    default: 8.8.8.8
-
 resources:
   # Create the web logical switch and configure DHCP.
   container_net0:
@@ -44,8 +38,7 @@ resources:
     properties:
       name: container-subnet0
       cidr: 192.168.41.0/24
-      dns_nameservers:
-        - { get param: dns_server }
+      dns_nameservers: [ 8.8.8.8 ]
       enable_dhcp: true
       gateway_ip: 192.168.41.1
       network_id: { get_resource: container_net0 }
@@ -114,10 +107,8 @@ resources:
     properties:
       floating_network_id: { get_param: external_network_id }
       port_id: { get_resource: container0_port0 }
+
 outputs:
   container0_public_ip:
     description: Floating IP address of Container0 on the public network
     value: { get_attr: [ container0_floating_ip, floating_ip_address ] }
-=======
-
->>>>>>> 517a3af1c4717e45195ef9a37d81d472c90f67ea
