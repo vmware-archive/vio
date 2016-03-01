@@ -3,6 +3,7 @@ heat_template_version: 2015-04-30
 description: |
   A simple Heat template that spins up a 3 Tier App with 1 Web Server, 1 App Server,
   and 1 DB Server on private networks and attaches them to security groups (HOT template in YAML).
+  Since this is a NO-NAT template this MUST be done by an OpenStack Admin.
 
 parameters:
   external_network_id:
