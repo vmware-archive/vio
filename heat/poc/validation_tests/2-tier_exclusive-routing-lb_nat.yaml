@@ -1,1 +1,251 @@
+heat_template_version: 2013-05-23
+
+description: |
+  Sample heat template that spins up a 2 Tier App with 2 Web Servers and 1 DB server on private networks and attaches them to security
+  groups and a Loadbalancer. Template is meant to be run on ubuntu for user-date to work properly.
+
+parameters:
+
+  external_network_id:
+    type: string
+    label: ext-net
+    description: UUID of a Neutron external network
+    default: fdb92e61-75e4-47ef-9b74-557af5b6147d
+
+  db_image:
+    type: string
+    description: Name of image to use for servers
+    default: ubuntu-14.04-server-amd64
+
+  web_image:
+    type: string
+    description: Name of image to use for servers
+    default: ubuntu-14.04-server-amd64
+
+  key_pair:
+    type: string
+    description: SSH Key Pair
+
+  flavor:
+    type: string
+    label: Flavor
+    description: Type of instance (flavor) to be used on the compute instance.
+    default: m1.small
+
+resources:
+  # Create the db logical switch and configure DHCP.
+  db_net:
+    type: OS::Neutron::Net
+    properties:
+      admin_state_up: true
+      name: db-net
+  db_subnet:
+    type: OS::Neutron::Subnet
+    properties:
+      name: db-subnet
+      cidr: 172.16.30.0/24
+      dns_nameservers: [8.8.8.8]
+      enable_dhcp: true
+      gateway_ip: 172.16.30.1
+      network_id: { get_resource: db_net }
+
+  # Create the web logical switch and configure DHCP.
+  web_net:
+    type: OS::Neutron::Net
+    properties:
+      admin_state_up: true
+      name: web-net
+  web_subnet:
+    type: OS::Neutron::Subnet
+    properties:
+      name: web-subnet
+      cidr: 172.16.10.0/24
+      dns_nameservers: [8.8.8.8]
+      enable_dhcp: true
+      gateway_ip: 172.16.10.1
+      network_id: { get_resource: web_net }
+  # Create the router, add internal db interface, and add router uplink
+  app_router_01:
+    type: OS::Neutron::Router
+    properties:
+      admin_state_up: true
+      name: app-router-01
+      value_specs: {router_type: exclusive}
+  app_router_01_gw:
+    type: OS::Neutron::RouterGateway
+    properties:
+      network_id: {get_param: external_network_id}
+      router_id: { get_resource: app_router_01 }
+  app_router_int0:
+    type: OS::Neutron::RouterInterface
+    properties:
+      router_id: { get_resource: app_router_01 }
+      subnet_id: { get_resource: db_subnet }
+  app_router_int1:
+    type: OS::Neutron::RouterInterface
+    properties:
+      router_id: { get_resource: app_router_01 }
+      subnet_id: { get_resource: web_subnet }
+
+  # Create Security Groups
+  db_security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      description: Allow sql traffic from web tier
+      name: db-security-group
+      rules:
+        - remote_group_id: { get_resource: web_security_group }
+          remote_mode: remote_group_id
+          protocol: tcp
+          port_range_min: 3306
+          port_range_max: 3306
+
+  web_security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      description: Allow web traffic from anywhere
+      name: web-security-group
+      rules:
+        - remote_ip_prefix: 0.0.0.0/0
+          protocol: tcp
+          port_range_min: 80
+          port_range_max: 80
+        - remote_ip_prefix: 0.0.0.0/0
+          protocol: tcp
+          port_range_min: 22
+          port_range_max: 22
+
+  # Create port(s) on db logical network.
+  db1_port0:
+    type: OS::Neutron::Port
+    properties:
+      admin_state_up: true
+      network_id: { get_resource: db_net }
+      security_groups:
+        - { get_resource: db_security_group }
+
+  # Create port(s) on web logical network.
+  web1_port0:
+    type: OS::Neutron::Port
+    properties:
+      admin_state_up: true
+      network_id: { get_resource: web_net }
+      security_groups:
+        - { get_resource: web_security_group }
+
+  web2_port1:
+    type: OS::Neutron::Port
+    properties:
+      admin_state_up: true
+      network_id: { get_resource: web_net }
+      security_groups:
+        - { get_resource: web_security_group }
+
+  #Provision instances
+  web1:
+    type: OS::Nova::Server
+    properties:
+      name: web1
+      image: { get_param: web_image }
+      flavor: { get_param: flavor }
+      networks:
+        - port: { get_resource: web1_port0 }
+      user_data_format: RAW
+      user_data: |
+            #!/bin/bash
+            echo This is Web Server-01 >> file.txt
+            python -m SimpleHTTPServer 80
+
+  web2:
+    type: OS::Nova::Server
+    properties:
+      name: web2
+      image: { get_param: web_image }
+      flavor: { get_param: flavor }
+      networks:
+        - port: { get_resource: web2_port1 }
+      user_data_format: RAW
+      user_data: |
+            #!/bin/bash
+            echo This is Web Server-02 >> file.txt
+            python -m SimpleHTTPServer 80
+
+  db1:
+    type: OS::Nova::Server
+    properties:
+      name: db1
+      image: { get_param: db_image }
+      flavor: { get_param: flavor }
+      networks:
+        - port: { get_resource: db1_port0 }
+
+  # Attach floating IP
+  db1_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: { get_param: external_network_id }
+      port_id: { get_resource: db1_port0 }
+  web1_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: { get_param: external_network_id }
+      port_id: { get_resource: web1_port0 }
+  web2_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: { get_param: external_network_id }
+      port_id: { get_resource: web2_port1 }
+
+  # Configure the LB'er
+  monitor:
+    type: OS::Neutron::HealthMonitor
+    properties:
+      type: TCP
+      delay: 10
+      max_retries: 3
+      timeout: 10
+
+  pool:
+    type: OS::Neutron::Pool
+    depends_on: app_router_int1
+    properties:
+      name: mypool
+      protocol: HTTP
+      monitors: [{get_resource: monitor}]
+      subnet_id: { get_resource: web_subnet }
+      lb_method: ROUND_ROBIN
+      vip:
+        protocol_port: 80
+
+  lb:
+    type: OS::Neutron::LoadBalancer
+    properties:
+      members: [ { get_resource: web1 }, { get_resource: web2 } ]
+      protocol_port: 80
+      pool_id: { get_resource: pool }
+
+  lb_floating:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: { get_param: external_network_id }
+      port_id: { get_attr: [ pool, vip, port_id ] }
+
+outputs:
+  WebsiteURL:
+    description: URL for manager
+    value:
+      str_replace:
+        template: http://host/index.php
+        params:
+          host: { get_attr: [ lb_floating, floating_ip_address ] }
+
+  db1_public_ip:
+    description: Floating IP address of DB1 on the public network
+    value: { get_attr: [ db1_floating_ip, floating_ip_address ] }
+  web1_public_ip:
+    description: Floating IP address of Web1 on the public network
+    value: { get_attr: [ web1_floating_ip, floating_ip_address ] }
+  web2_public_ip:
+    description: Floating IP address of Web1 on the public network
+    value: { get_attr: [ web2_floating_ip, floating_ip_address ] }
 
