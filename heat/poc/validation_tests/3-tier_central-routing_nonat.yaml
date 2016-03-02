@@ -123,7 +123,7 @@ resources:
           protocol: tcp
           port_range_min: 3306
           port_range_max: 3306
-        - remote_ip_prefix: { get_attr: [ app_subnet_01, cidr ] }
+        - remote_ip_prefix: 0.0.0.0/0
           protocol: icmp
 
   web_security_group:
@@ -153,7 +153,7 @@ resources:
           protocol: tcp
           port_range_min: 8443
           port_range_max: 8443
-        - remote_ip_prefix: { get_attr: [ web_subnet_01, cidr ] }
+        - remote_ip_prefix: 0.0.0.0/0
           protocol: icmp
 
   # Create ports on web switch.
