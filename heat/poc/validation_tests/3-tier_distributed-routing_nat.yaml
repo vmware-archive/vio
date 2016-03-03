@@ -224,3 +224,9 @@ outputs:
   web-svr-01_public_ip:
     description: Floating IP address of web-svr-01 in public network
     value: { get_attr: [ web-svr-01_floating_ip, floating_ip_address ] }
+  app-svr-01_private_ip:
+    description: IP address of app-svr-01 in private network
+    value: { get_attr: [ app-svr-01, first_address ] }
+  db-svr-01_private_ip:
+    description: IP address of db-svr-01 in private network
+    value: { get_attr: [ db-svr-01, first_address ] }
