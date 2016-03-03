@@ -28,6 +28,12 @@ parameters:
     description: Type of instance (flavor) to be used on the compute instance.
     default: m1.small
 
+  dns:
+    type: string
+    label: DNS nameserver
+    description: Comma separated list of DNS nameservers for the private network
+    default: "8.8.8.8"
+
 resources:
   # Create the web logical switch and configure DHCP.
   container_net0:
@@ -40,7 +46,7 @@ resources:
     properties:
       name: container-subnet0
       cidr: 192.168.41.0/24
-      dns_nameservers: [ 8.8.8.8 ]
+      dns_nameservers: [ { get_param: dns } ]
       enable_dhcp: true
       gateway_ip: 192.168.41.1
       network_id: { get_resource: container_net0 }
@@ -71,6 +77,9 @@ resources:
           protocol: tcp
           port_range_min: 22
           port_range_max: 22
+        - remote_ip_prefix: 0.0.0.0/0
+          protocol: icmp
+
   # Create port(s) on container logical network.
   container0_port0:
     type: OS::Neutron::Port
