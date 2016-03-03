@@ -116,6 +116,14 @@ resources:
       port_id: { get_resource: container0_port0 }
 
 outputs:
+  WebsiteURL:
+    description: URL for the Container
+    value:
+      str_replace:
+        template: http://host/
+        params:
+          host: { get_attr: [ container0_floating_ip, floating_ip_address ] }
+
   container0_public_ip:
     description: Floating IP address of Container0 on the public network
     value: { get_attr: [ container0_floating_ip, floating_ip_address ] }
