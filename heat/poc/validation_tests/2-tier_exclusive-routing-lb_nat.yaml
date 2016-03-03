@@ -22,10 +22,6 @@ parameters:
     description: Name of image to use for servers
     default: ubuntu-14.04-server-amd64
 
-  key_pair:
-    type: string
-    description: SSH Key Pair
-
   flavor:
     type: string
     label: Flavor
