@@ -1,0 +1,162 @@
+{
+   "_total_count":14,
+   "_next_url":null,
+   "_page_count":14,
+   "_list":[
+      {
+         "_this_url":"/ob/deliverable/182969046/",
+         "_download_url":"http://buildweb.eng.vmware.com/ob/api/1935022/deliverable/?file=publish/app_monitor_dependency.tar.gz",
+         "_currenttime":"2014-06-27 14:48:03.720880",
+         "_build_url":"/ob/build/1935022/",
+         "_this_resource":"deliverable",
+         "size_in_mb":9,
+         "path":"publish/app_monitor_dependency.tar.gz",
+         "id":182969046,
+         "deliverable_class":"external"
+      },
+      {
+         "_this_url":"/ob/deliverable/182969047/",
+         "_download_url":"http://buildweb.eng.vmware.com/ob/api/1935022/deliverable/?file=publish/VMware-oms-ha-0.5.0.8-1935022.x86_64.rpm",
+         "_currenttime":"2014-06-27 14:48:03.720880",
+         "_build_url":"/ob/build/1935022/",
+         "_this_resource":"deliverable",
+         "size_in_mb":1,
+         "path":"publish/VMware-oms-ha-0.5.0.8-1935022.x86_64.rpm",
+         "id":182969047,
+         "deliverable_class":"external"
+      },
+      {
+         "_this_url":"/ob/deliverable/182969048/",
+         "_download_url":"http://buildweb.eng.vmware.com/ob/api/1935022/deliverable/?file=publish/VMware-oms-sysctl-0.5.0.8-1935022.x86_64.rpm",
+         "_currenttime":"2014-06-27 14:48:03.720880",
+         "_build_url":"/ob/build/1935022/",
+         "_this_resource":"deliverable",
+         "size_in_mb":1,
+         "path":"publish/VMware-oms-sysctl-0.5.0.8-1935022.x86_64.rpm",
+         "id":182969048,
+         "deliverable_class":"external"
+      },
+      {
+         "_this_url":"/ob/deliverable/182969049/",
+         "_download_url":"http://buildweb.eng.vmware.com/ob/api/1935022/deliverable/?file=publish/management-server-0.5.0.0-1935022.oss.tgz",
+         "_currenttime":"2014-06-27 14:48:03.720880",
+         "_build_url":"/ob/build/1935022/",
+         "_this_resource":"deliverable",
+         "size_in_mb":574,
+         "path":"publish/management-server-0.5.0.0-1935022.oss.tgz",
+         "id":182969049,
+         "deliverable_class":"external"
+      },
+      {
+         "_this_url":"/ob/deliverable/182969050/",
+         "_download_url":"http://buildweb.eng.vmware.com/ob/api/1935022/deliverable/?file=publish/VMware-openstack-core-0.5.0.8-1935022.noarch.rpm",
+         "_currenttime":"2014-06-27 14:48:03.720880",
+         "_build_url":"/ob/build/1935022/",
+         "_this_resource":"deliverable",
+         "size_in_mb":32,
+         "path":"publish/VMware-openstack-core-0.5.0.8-1935022.noarch.rpm",
+         "id":182969050,
+         "deliverable_class":"external"
+      },
+      {
+         "_this_url":"/ob/deliverable/182969051/",
+         "_download_url":"http://buildweb.eng.vmware.com/ob/api/1935022/deliverable/?file=publish/openstack_vapp/exports/ova/VMware-OpenStack-0.5.0.0-1935022_OVF10.ova",
+         "_currenttime":"2014-06-27 14:48:03.720880",
+         "_build_url":"/ob/build/1935022/",
+         "_this_resource":"deliverable",
+         "size_in_mb":1647,
+         "path":"publish/openstack_vapp/exports/ova/VMware-OpenStack-0.5.0.0-1935022_OVF10.ova",
+         "id":182969051,
+         "deliverable_class":"external"
+      },
+      {
+         "_this_url":"/ob/deliverable/182969101/",
+         "_download_url":"http://buildweb.eng.vmware.com/ob/api/1935022/deliverable/?file=publish/openstack_vapp/exports/ovf/openstack-template_VMwareOSTemplate-1.1.4.0-1934096-system.vmdk",
+         "_currenttime":"2014-06-27 14:48:03.720880",
+         "_build_url":"/ob/build/1935022/",
+         "_this_resource":"deliverable",
+         "size_in_mb":756,
+         "path":"publish/openstack_vapp/exports/ovf/openstack-template_VMwareOSTemplate-1.1.4.0-1934096-system.vmdk",
+         "id":182969101,
+         "deliverable_class":"external"
+      },
+      {
+         "_this_url":"/ob/deliverable/182969102/",
+         "_download_url":"http://buildweb.eng.vmware.com/ob/api/1935022/deliverable/?file=publish/openstack_vapp/exports/ovf/management-server_management-server-0.5.0.0-1935022-cloud-components.vmdk",
+         "_currenttime":"2014-06-27 14:48:03.720880",
+         "_build_url":"/ob/build/1935022/",
+         "_this_resource":"deliverable",
+         "size_in_mb":15,
+         "path":"publish/openstack_vapp/exports/ovf/management-server_management-server-0.5.0.0-1935022-cloud-components.vmdk",
+         "id":182969102,
+         "deliverable_class":"external"
+      },
+      {
+         "_this_url":"/ob/deliverable/182969103/",
+         "_download_url":"http://buildweb.eng.vmware.com/ob/api/1935022/deliverable/?file=publish/openstack_vapp/exports/ovf/VMware-OpenStack-0.5.0.0-1935022_OVF10.mf",
+         "_currenttime":"2014-06-27 14:48:03.720880",
+         "_build_url":"/ob/build/1935022/",
+         "_this_resource":"deliverable",
+         "size_in_mb":1,
+         "path":"publish/openstack_vapp/exports/ovf/VMware-OpenStack-0.5.0.0-1935022_OVF10.mf",
+         "id":182969103,
+         "deliverable_class":"external"
+      },
+      {
+         "_this_url":"/ob/deliverable/182969104/",
+         "_download_url":"http://buildweb.eng.vmware.com/ob/api/1935022/deliverable/?file=publish/openstack_vapp/exports/ovf/VMware-OpenStack-0.5.0.0-1935022_OVF10.cert",
+         "_currenttime":"2014-06-27 14:48:03.720880",
+         "_build_url":"/ob/build/1935022/",
+         "_this_resource":"deliverable",
+         "size_in_mb":1,
+         "path":"publish/openstack_vapp/exports/ovf/VMware-OpenStack-0.5.0.0-1935022_OVF10.cert",
+         "id":182969104,
+         "deliverable_class":"external"
+      },
+      {
+         "_this_url":"/ob/deliverable/182969105/",
+         "_download_url":"http://buildweb.eng.vmware.com/ob/api/1935022/deliverable/?file=publish/openstack_vapp/exports/ovf/VMware-OpenStack-0.5.0.0-1935022_OVF10.ovf",
+         "_currenttime":"2014-06-27 14:48:03.720880",
+         "_build_url":"/ob/build/1935022/",
+         "_this_resource":"deliverable",
+         "size_in_mb":1,
+         "path":"publish/openstack_vapp/exports/ovf/VMware-OpenStack-0.5.0.0-1935022_OVF10.ovf",
+         "id":182969105,
+         "deliverable_class":"external"
+      },
+      {
+         "_this_url":"/ob/deliverable/182969106/",
+         "_download_url":"http://buildweb.eng.vmware.com/ob/api/1935022/deliverable/?file=publish/openstack_vapp/exports/ovf/management-server_management-server-0.5.0.0-1935022-system.vmdk",
+         "_currenttime":"2014-06-27 14:48:03.720880",
+         "_build_url":"/ob/build/1935022/",
+         "_this_resource":"deliverable",
+         "size_in_mb":877,
+         "path":"publish/openstack_vapp/exports/ovf/management-server_management-server-0.5.0.0-1935022-system.vmdk",
+         "id":182969106,
+         "deliverable_class":"external"
+      },
+      {
+         "_this_url":"/ob/deliverable/182969107/",
+         "_download_url":"http://buildweb.eng.vmware.com/ob/api/1935022/deliverable/?file=publish/MD5SUM.txt",
+         "_currenttime":"2014-06-27 14:48:03.720880",
+         "_build_url":"/ob/build/1935022/",
+         "_this_resource":"deliverable",
+         "size_in_mb":0,
+         "path":"publish/MD5SUM.txt",
+         "id":182969107,
+         "deliverable_class":"external"
+      },
+      {
+         "_this_url":"/ob/deliverable/182969108/",
+         "_download_url":"http://buildweb.eng.vmware.com/ob/api/1935022/deliverable/?file=publish/SHA1SUM.txt",
+         "_currenttime":"2014-06-27 14:48:03.720880",
+         "_build_url":"/ob/build/1935022/",
+         "_this_resource":"deliverable",
+         "size_in_mb":0,
+         "path":"publish/SHA1SUM.txt",
+         "id":182969108,
+         "deliverable_class":"external"
+      }
+   ],
+   "_previous_url":null
+}

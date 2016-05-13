@@ -1,0 +1,429 @@
+#!/usr/bin/python
+import logging
+import os
+import json
+
+import argparse
+
+from omsclient.oms_controller import OmsController
+from panda import build_utils
+from panda import cluster_utils
+from panda import logging_utils
+from panda import oms_utils
+from panda import tempest_utils
+from panda import end_to_end
+from shellutil import shell
+
+
+LOG = logging.getLogger('panda')
+
+
+def download_vio_ova(args):
+    build_utils.download_ova(args.build_id, args.location)
+
+
+def get_ova_url(args):
+    url = build_utils.get_ova_url(args.build_id)
+    LOG.info('URL: %s', url)
+
+
+def deploy_vio_vapp(args):
+    oms_utils.deploy_vapp(vc_host=args.vc_host,
+                          vc_user=args.vc_user,
+                          vc_password=args.vc_password,
+                          dc=args.datacenter,
+                          cluster=args.cluster,
+                          ds=args.datastore,
+                          network=args.network,
+                          ova_path=args.ova_path,
+                          ntp_server=args.ntp_server,
+                          viouser_pwd=args.password,
+                          ip=args.ip,
+                          netmask=args.netmask,
+                          gateway=args.gateway,
+                          dns=args.dns,
+                          ovf_tool_path=args.ovf_tool)
+
+
+def configure_omjs(args):
+    properties = {}
+    for prop in args.properties.split(','):
+        tmp = prop.split('=')
+        properties[tmp[0].strip()] = tmp[1].strip()
+    oms_utils.config_omjs(ip=args.ip,
+                          vc_user=args.vc_user,
+                          vc_password=args.vc_password,
+                          properties=properties,
+                          password=args.password)
+
+
+def remove_vio_vapp(args):
+    oms_utils.remove_vapp(vc_host=args.vc_host,
+                          vc_user=args.vc_user,
+                          vc_password=args.vc_password,
+                          name_regex=args.regex)
+
+
+def load_json_spec(path):
+    with open(path, 'r') as fh:
+        return json.load(fh)
+
+
+def deploy_vio_cluster(args):
+    oms_ctl = OmsController(args.ip, args.vc_user, args.vc_password)
+    cluster_spec = load_json_spec(args.spec_path)
+    cluster_spec = cluster_utils.create_deployment_plan(oms_ctl, cluster_spec)
+    cluster_utils.create_openstack_cluster(oms_ctl, cluster_spec)
+
+
+def delete_vio_cluster(args):
+    oms_ctl = OmsController(args.ip, args.vc_user, args.vc_password)
+    cluster_utils.delete_cluster(oms_ctl)
+
+
+def install_tempest(args):
+    params = {}
+    if args.repository:
+        params['repository'] = args.repository
+    if args.branch:
+        params['branch'] = args.branch
+    if args.conf_template:
+        params['conf_template'] = args.conf_template
+    tempest_utils.install_tempest(**params)
+
+
+def config_tempest(args):
+    conf_path = 'tempest/etc/tempest.conf'
+    if os.path.exists(conf_path):
+        return_code = shell.local('ping -c1 %s' % args.private_vip)[0]
+        if return_code:
+            LOG.error('%s is not reachable.', args.private_vip)
+            return
+        tempest_utils.config_tempest(private_vip=args.private_vip,
+                                     admin_user=args.admin_user,
+                                     admin_pwd=args.admin_password,
+                                     neutron_backend=args.neutron_backend,
+                                     creds_provider=args.creds_provider,
+                                     default_user=args.user1,
+                                     default_pwd=args.user1_pwd,
+                                     alter_user=args.user2,
+                                     alter_pwd=args.user2_pwd,
+                                     ext_net_cidr=args.ext_cidr,
+                                     ext_net_start_ip=args.ext_start_ip,
+                                     ext_net_end_ip=args.ext_end_ip,
+                                     ext_net_gateway=args.ext_gateway)
+        tempest_utils.generate_run_list(args.neutron_backend)
+    else:
+        LOG.error('tempest/etc/tempest.conf not Found. '
+                  'Please run panda tempest install first.')
+
+
+def run_tempest(args):
+    report_dir = args.report_dir if args.report_dir else os.getcwd()
+    tests = args.tests.split(',')
+    for test in tests:
+        test = test.strip()
+        test_list = 'tempest/%s.txt' % test
+        if not os.path.exists(test_list):
+            LOG.error('%s not Found. Please run panda tempest config first.'
+                      % test_list)
+            return
+        tempest_utils.run_test(test, report_dir, args.parallel, args.rerun)
+
+
+def go(args):
+    oms_spec = load_json_spec(args.oms_spec)
+    cluster_spec = load_json_spec(args.cluster_spec)
+    log_dir = args.log_dir if args.log_dir else os.getcwd()
+    end_to_end.vio_orchestration(oms_spec, log_dir, cluster_spec, args.tests)
+
+
+def add_buildweb_parser(sub_parsers):
+    # buildweb subcommands
+    buildweb_parser = sub_parsers.add_parser('buildweb',
+                                             help='Buildweb operations')
+    buildweb_sub_parsers = buildweb_parser.add_subparsers(help='sub commands')
+    # download ova
+    download_parser = buildweb_sub_parsers.add_parser('download',
+                                                      help='Get the VIO ova')
+    download_parser.add_argument('build_id',
+                                 help='VIO build id. Like ob-3329893')
+    download_parser.add_argument('--location',
+                                 help='Path where you want to download ova')
+    download_parser.set_defaults(func=download_vio_ova)
+    # get ova url
+    ova_url_parser = buildweb_sub_parsers.add_parser('get-url',
+                                                     help='Get VIO ova URL')
+    ova_url_parser.add_argument('build_id',
+                                help='VIO build id. Like ob-3329893')
+    ova_url_parser.set_defaults(func=get_ova_url)
+
+
+def add_oms_parser(sub_parsers):
+    # oms subcommands
+    vapp_parser = sub_parsers.add_parser('oms',
+                                         help='VIO OMS operations')
+    vapp_sub_parsers = vapp_parser.add_subparsers(help='sub commands')
+    # deploy vapp
+    vapp_deploy_parser = vapp_sub_parsers.add_parser(
+        'deploy', help='Deploy VIO vApp with ovftool')
+    vapp_deploy_parser.add_argument('vc_host',
+                                    help='vCenter server IP address or FQDN')
+    vapp_deploy_parser.add_argument('vc_user',
+                                    help='vCenter server user name')
+    vapp_deploy_parser.add_argument('vc_password',
+                                    help='vCenter server password')
+    vapp_deploy_parser.add_argument('datacenter',
+                                    help='Datacenter of vApp')
+    vapp_deploy_parser.add_argument('cluster',
+                                    help='Cluster of vApp')
+    vapp_deploy_parser.add_argument('datastore',
+                                    help='Datastore of vApp')
+    vapp_deploy_parser.add_argument('network',
+                                    help='network of vApp')
+    vapp_deploy_parser.add_argument('ova_path',
+                                    help='OVA path. Local, http or https URL')
+    vapp_deploy_parser.add_argument('--ip',
+                                    help='OMS IP address. Use DHCP if omitted')
+    vapp_deploy_parser.add_argument('--netmask',
+                                    help='OMS IP netmask')
+    vapp_deploy_parser.add_argument('--gateway',
+                                    help='OMS netmask')
+    vapp_deploy_parser.add_argument('--dns',
+                                    help='OMS dns')
+    vapp_deploy_parser.add_argument('--ntp-server',
+                                    dest='ntp_server',
+                                    help='NTP server IP or FQDN')
+    vapp_deploy_parser.add_argument('--password',
+                                    help='password of viouser')
+    vapp_deploy_parser.add_argument('--ovf-tool',
+                                    dest='ovf_tool',
+                                    help='ovf tool path')
+    vapp_deploy_parser.set_defaults(func=deploy_vio_vapp)
+    # config omjs
+    oms_config_parser = vapp_sub_parsers.add_parser(
+        'config-omjs', help='Configure omjs.properties. This is useful for rel'
+                            'ease build to remove vmotion and affinity checks'
+                            ', do linked clone or set POC mode')
+    oms_config_parser.add_argument('ip',
+                                   help='OMS IP address')
+    oms_config_parser.add_argument('password',
+                                   help='password of viouser')
+    oms_config_parser.add_argument('vc_user',
+                                   help='vCenter server user name')
+    oms_config_parser.add_argument('vc_password',
+                                   help='vCenter server password')
+    oms_config_parser.add_argument('properties',
+                                   help='properties of omjs, seperated with '
+                                   'comma. For example: oms.use_linked_c'
+                                   'lone=true,oms.skip_cluster_vmotion_c'
+                                   'heck=true')
+    oms_config_parser.set_defaults(func=configure_omjs)
+    # remove vapp
+    vapp_remove_parser = vapp_sub_parsers.add_parser(
+        'remove', help='Remove VIO vApp from vCenter')
+    vapp_remove_parser.add_argument('vc_host',
+                                    help='vCenter server IP address or FQDN')
+    vapp_remove_parser.add_argument('vc_user',
+                                    help='vCenter server user name')
+    vapp_remove_parser.add_argument('vc_password',
+                                    help='vCenter server password')
+    vapp_remove_parser.add_argument('regex',
+                                    help='regular expression to match vApp '
+                                         'name. Use ^VMware-OpenStack.*\d$ '
+                                         'to for VIO vApp.')
+    vapp_remove_parser.set_defaults(func=remove_vio_vapp)
+
+
+def add_cluster_parser(sub_parsers):
+    # cluster subcommands
+    cluster_parser = sub_parsers.add_parser('cluster',
+                                            help='VIO cluster operations')
+    cluster_sub_parsers = cluster_parser.add_subparsers(help='sub commands')
+    # deploy cluster
+    cluster_deploy_parser = cluster_sub_parsers.add_parser(
+        'create', help='Deploy Openstack cluster')
+    cluster_deploy_parser.add_argument('ip',
+                                       help='OMS IP address or FQDN')
+    cluster_deploy_parser.add_argument('vc_user',
+                                       help='vCenter server user name')
+    cluster_deploy_parser.add_argument('vc_password',
+                                       help='vCenter server password')
+    cluster_deploy_parser.add_argument('spec_path',
+                                       help='Openstack cluster deployment spec'
+                                            ' path')
+    cluster_deploy_parser.set_defaults(func=deploy_vio_cluster)
+    # remove cluster
+    cluster_remove_parser = cluster_sub_parsers.add_parser(
+        'delete', help='Remove Openstack cluster')
+    cluster_remove_parser.add_argument('ip',
+                                       help='OMS IP address or FQDN')
+    cluster_remove_parser.add_argument('vc_user',
+                                       help='vCenter server user name')
+    cluster_remove_parser.add_argument('vc_password',
+                                       help='vCenter server password')
+    cluster_remove_parser.set_defaults(func=delete_vio_cluster)
+
+
+def add_tempest_parser(sub_parsers):
+    # cluster subcommands
+    tempest_parser = sub_parsers.add_parser('tempest',
+                                            help='Tempest test operations')
+    tempest_sub_parsers = tempest_parser.add_subparsers(help='sub commands')
+    # install tempest
+    tempest_install_parser = tempest_sub_parsers.add_parser(
+        'install', help='install tempest')
+    tempest_install_parser.add_argument('--repository',
+                                        help='git repository. '
+                                             'http://p3-review.eng.vmware.com'
+                                             '/tempest if ignored.')
+    tempest_install_parser.add_argument('--branch',
+                                        help='branch name of repository. '
+                                             'master if ignored')
+    tempest_install_parser.add_argument('--conf-template',
+                                        dest='conf_template',
+                                        help='tempest.conf template path. etc/'
+                                             'tempest.conf.sample if ignored')
+    tempest_install_parser.set_defaults(func=install_tempest)
+    # configure tempest
+    tempest_config_parser = tempest_sub_parsers.add_parser(
+        'config', help='Create data for tempest and configure tempest.conf')
+    tempest_config_parser.add_argument('private_vip',
+                                       help='Private VIP.')
+    tempest_config_parser.add_argument('admin_user',
+                                       help='Admin user. admin for SQL backend'
+                                            '. Bind user for LDAP backend.')
+    tempest_config_parser.add_argument('admin_password',
+                                       help='admin user password')
+    tempest_config_parser.add_argument('neutron_backend',
+                                       help='nsxv or dvs.')
+    tempest_config_parser.add_argument('--credentials-provider',
+                                       dest='creds_provider',
+                                       action='store',
+                                       default=tempest_utils.DYNAMIC_PROVIDER,
+                                       help='Type dynamic for SQL backend. '
+                                            'Type legacy if LDAP backend.')
+    tempest_config_parser.add_argument('--user1',
+                                       action='store',
+                                       default='default',
+                                       help='User for test. Required and make '
+                                            'sure it exists if LDAP backend.')
+    tempest_config_parser.add_argument('--user1-password',
+                                       dest='user1_pwd',
+                                       action='store',
+                                       default='vmware',
+                                       help='Password of user1.')
+    tempest_config_parser.add_argument('--user2',
+                                       action='store',
+                                       default='alt-user',
+                                       help='User for test. Required and make '
+                                            'sure it exists if LDAP backend.')
+    tempest_config_parser.add_argument('--user2-password',
+                                       dest='user2_pwd',
+                                       action='store',
+                                       default='vmware',
+                                       help='Password of user2.')
+    tempest_config_parser.add_argument('--ext-cidr',
+                                       dest='ext_cidr',
+                                       help='Edge external network CIDR')
+    tempest_config_parser.add_argument('--ext-start-ip',
+                                       dest='ext_start_ip',
+                                       help='Edge external network start IP.')
+    tempest_config_parser.add_argument('--ext-end-ip',
+                                       dest='ext_end_ip',
+                                       help='Edge external network end IP.')
+    tempest_config_parser.add_argument('--ext-gateway',
+                                       dest='ext_gateway',
+                                       help='Edge external network gateway IP')
+    tempest_config_parser.set_defaults(func=config_tempest)
+    # run tempest
+    tempest_config_parser = tempest_sub_parsers.add_parser(
+        'run', help='Run tempest tests.')
+    tempest_config_parser.add_argument('tests',
+                                       help='Test suite name, separated with '
+                                            'comma. Example: nova,cinder,'
+                                            'neutron,heat,keystone,glance,'
+                                            'scenario')
+    tempest_config_parser.add_argument('--report-dir',
+                                       dest='report_dir',
+                                       help='Dir to generate reports. Current '
+                                            'dir by default.')
+    tempest_config_parser.add_argument('--parallel',
+                                       action="store_true",
+                                       default=False,
+                                       help='Run tests in parallel.')
+    tempest_config_parser.add_argument('--rerun-failures',
+                                       dest='rerun',
+                                       action="store_true",
+                                       default=False,
+                                       help='Rerun failed tests afterward.')
+    tempest_config_parser.set_defaults(func=run_tempest)
+
+
+def add_go_parser(sub_parsers):
+    oms_spec = """
+    {
+        "build": "3037963",
+        "ova_path": "",
+        "username": "viouser",
+        "password": "vmware",
+        "host_ip": "192.168.111.151",
+        "gateway": "192.168.111.1",
+        "netmask": "255.255.255.0",
+        "dns": "192.168.111.1",
+        "ntp_server": "",
+        "omjs_properties": {"oms.use_linked_clone": "true",
+                            "oms.skip_cluster_vmotion_check": "true",
+                            "oms.disable_datastores_anti_affinity": "true"},
+        "patches": ["vio-patch-201_2.0.1.3309787_all.deb"],
+        "vc_host": "192.168.111.130",
+        "vc_user": "Administrator@vsphere.local",
+        "vc_password": "Admin!23",
+        "datacenter": "vio-datacenter",
+        "cluster": "mgmt_cluster",
+        "datastore": "vdnetSharedStorage",
+        "network": "VM Network",
+        "openstack_creds_provider": "dynamic",
+        "ext_net_cidr": "192.168.112.0/24",
+        "ext_net_start_ip": "192.168.112.170",
+        "ext_net_end_ip": "192.168.112.200",
+        "ext_net_gateway": "192.168.112.1"
+    }
+    """
+    # cluster subcommands
+    go_parser = sub_parsers.add_parser('go',
+                                       help='End to End test. Deployment, '
+                                            'patch, day2 operations, '
+                                            'tempest test in one command. It '
+                                            'is designed for CI in fixed '
+                                            'vSphere environment.')
+    go_parser.add_argument('oms_spec',
+                           help='OMS spec file. See the format: %s' % oms_spec)
+    go_parser.add_argument('cluster_spec',
+                           help='OMS rest api cluster creation spec file.')
+    go_parser.add_argument('--tests',
+                           help='Test suite. keystone,glance,nova,cinder,'
+                                'neutron,heat,scenario')
+    go_parser.add_argument('--log-dir',
+                           dest='log_dir',
+                           help='Log directory.')
+    go_parser.set_defaults(func=go)
+
+
+def main():
+    logging_utils.setup_logging()
+    panda_parser = argparse.ArgumentParser(
+        prog='panda',
+        description='Cli for deploying and testing VIO')
+    sub_parsers = panda_parser.add_subparsers(help='commands')
+    add_buildweb_parser(sub_parsers)
+    add_oms_parser(sub_parsers)
+    add_cluster_parser(sub_parsers)
+    add_tempest_parser(sub_parsers)
+    add_go_parser(sub_parsers)
+    args = panda_parser.parse_args()
+    LOG.debug('Arguments: %s' % args)
+    args.func(args)
+
+if __name__ == '__main__':
+    main()

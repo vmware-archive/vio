@@ -1,0 +1,5 @@
+[gerrit]
+host=p3-review.eng.vmware.com
+port=29418
+project=tempest.git
+defaultbranch=master

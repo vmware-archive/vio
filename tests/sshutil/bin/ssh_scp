@@ -1,0 +1,52 @@
+#!/usr/bin/python
+import logging
+import sys
+
+import argparse
+
+from sshutil.remote import RemoteClient
+
+LOG = logging.getLogger('sshutil')
+
+
+def configure_logging():
+    LOG.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(message)s')
+
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.DEBUG)
+    console_handler.setFormatter(formatter)
+    LOG.addHandler(console_handler)
+
+
+def main():
+    configure_logging()
+    parser = argparse.ArgumentParser(
+        prog='ssh_scp',
+        description='scp tool for transfer files between two hosts.')
+    parser.add_argument('host',
+                        help='IP address or hostname.')
+    parser.add_argument('user',
+                        help='User name.')
+    parser.add_argument('password',
+                        help='Password of the user.')
+    parser.add_argument('command',
+                        choices = ('get','put'),
+                        help='get:Transfers a remote file to the local host.'
+
+                             'put:Transfers a local file to the remote host.')
+    parser.add_argument('src',
+                        help='Source path is a relative or absolute path to a file.')
+    parser.add_argument('dest',
+                        help='Destination path is an absolute path on the destination host.                                                                             ')
+    args = parser.parse_args()
+    command = args.command
+    rc = RemoteClient(args.host, args.user, args.password)
+    if command == 'get':
+        rc.get(args.src,args.dest)
+    else:
+        rc.scp(args.src,args.dest)
+    return rc.last_exit_status
+
+if __name__ == '__main__':
+    sys.exit(main())

@@ -1,0 +1,189 @@
+import logging
+import os
+import json
+
+import cluster_utils
+from panda.exceptions import NotSupportedError
+import tempest_utils
+from tempest_utils import NSXV_BACKEND
+from tempest_utils import LEGACY_PROVIDER
+from shellutil import shell
+from omsclient.oms_controller import OmsController
+
+
+LOG = logging.getLogger(__name__)
+PASS = 0
+FAIL = 1
+VIO_LOGS_DIR = 'vio'
+V1_DVS_BRANCH = 'dvs-1.0.0'
+V2_DVS_BRANCH = 'dvs-2.0'
+
+
+class Test(object):
+    def __init__(self, test_name, log_dir, oms_spec, cluster_spec):
+        self.test_name = test_name
+        self.oms_spec = oms_spec
+        self.cluster_spec = cluster_spec
+        self.log_dir = log_dir if os.path.isabs(log_dir) else \
+            os.path.abspath(log_dir)
+
+    @staticmethod
+    def run_tests(tests, log_dir, oms_spec, cluster_spec):
+        results = PASS
+        for test in tests.split(','):
+            test = test.strip()
+            if test in CLS_MAP.keys():
+                cls = CLS_MAP.get(test)
+                result = cls.run_test(test, log_dir, oms_spec, cluster_spec)
+                if result != PASS:
+                    results = FAIL
+            else:
+                raise Exception("Test %s not supported!" % test)
+        return results
+
+    @classmethod
+    def run_test(cls, test, log_dir, oms_spec, cluster_spec):
+        instance = cls(test, log_dir, oms_spec, cluster_spec)
+        instance.set_up()
+        instance.run()
+        instance.clean_up()
+        return instance.check_results()
+
+
+class OMSAPI(Test):
+    def __init__(self, test_name, log_dir, oms_spec, cluster_spec):
+        super(OMSAPI, self).__init__(test_name, log_dir, oms_spec,
+                                     cluster_spec)
+        self.project_path = None
+
+    def set_up(self):
+        config = {
+            "vc_ip": self.oms_spec['vc_host'],
+            "vc_user": self.oms_spec['vc_user'],
+            "vc_password": self.oms_spec['vc_password'],
+            "vapp_name": '',
+            "oms_ip": self.oms_spec['host_ip'],
+            "oms_gateway": self.oms_spec['gateway'],
+            "oms_netmask": self.oms_spec['netmask'],
+            "oms_dns": self.oms_spec['dns'],
+            "oms_network": '',
+            "oms_dc": '',
+            "oms_cluster": '',
+            "oms_datastore": '',
+            "nsxv_manager": self.oms_spec['nsxv_ip'],
+            "nsxv_username": self.oms_spec['nsxv_user'],
+            "nsxv_password": self.oms_spec['nsxv_password']
+        }
+        branch = self.oms_spec['version'][0:3]
+        project_path = os.path.join(os.getcwd(), 'vio-api-test')
+        if not os.path.exists(project_path):
+            shell.local('git clone -b %s http://p3-review.eng.vmware.com/'
+                        'vio-api-test' % branch)
+        LOG.info('Install VIO OMS api test project in %s', project_path)
+        shell.local('sudo pip install -r vio-api-test/requirements.txt')
+        shell.local('sudo pip install -e vio-api-test/')
+        config_path = "%s/vio/data/vio.vapp.json" % project_path
+        LOG.info("Generate VIO OMS API test configuration to %s" % config_path)
+        LOG.debug("vio.vapp.json: %s" % config)
+        with open(config_path, 'w+') as fh:
+            json.dump(config, fh, indent=2, separators=(',', ': '))
+        self.project_path = project_path
+
+    def _run(self, neutron_backend):
+        report = '%s-nosetests.xml' % neutron_backend
+        cmd = 'cd %s; python run_test.py -t %s --report %s' % \
+              (self.project_path,
+               neutron_backend,
+               os.path.join(self.log_dir, report))
+        LOG.info('[local] run: %s' % cmd)
+        os.system(cmd)
+
+    def run(self):
+        LOG.info("oms-api tests begin.")
+        self._run('dvs')
+        self._run('nsxv')
+        LOG.info("oms-api tests end.")
+        # return result
+
+    def check_results(self):
+        # TODO (xiaoy): check if test fails in nosetests.xml
+        return PASS
+
+    def clean_up(self):
+        pass
+
+
+class Tempest(Test):
+    def set_up(self):
+        if not os.path.exists('tempest/included-tests.txt'):
+            controller = cluster_utils.get_nodegroup_by_role(self.cluster_spec,
+                                                             'Controller')
+            admin_user = controller['attributes']['admin_user']
+            admin_pwd = controller['attributes']['admin_password']
+            neutron_backend = controller['attributes']['neutron_backend']
+            admin_tenant = controller['attributes']['admin_tenant_name']
+            ext_net_cidr = None
+            ext_net_start_ip = None
+            ext_net_end_ip = None
+            ext_net_gateway = None
+            if neutron_backend == NSXV_BACKEND:
+                ext_net_cidr = self.oms_spec['ext_net_cidr']
+                ext_net_start_ip = self.oms_spec['ext_net_start_ip']
+                ext_net_end_ip = self.oms_spec['ext_net_end_ip']
+                ext_net_gateway = self.oms_spec['ext_net_gateway']
+            creds_provider = self.oms_spec['openstack_creds_provider'].strip()
+            if creds_provider == LEGACY_PROVIDER:
+                user1 = self.oms_spec['openstack_user1']
+                user1_pwd = self.oms_spec['openstack_user1_pwd']
+                user2 = self.oms_spec['openstack_user2']
+                user2_pwd = self.oms_spec['openstack_user2_pwd']
+            else:
+                user1 = None
+                user1_pwd = None
+                user2 = None
+                user2_pwd = None
+            tempest_utils.install_tempest()
+            tempest_log_file = '%s/tempest.log' % self.log_dir
+            oms_ctl = OmsController(self.oms_spec['host_ip'],
+                                    self.oms_spec['vc_user'],
+                                    self.oms_spec['vc_password'])
+            private_vip = cluster_utils.get_private_vip(oms_ctl)
+            if not private_vip:
+                raise NotSupportedError('Can not get private VIP.')
+            tempest_utils.config_tempest(private_vip=private_vip,
+                                         admin_user=admin_user,
+                                         admin_pwd=admin_pwd,
+                                         neutron_backend=neutron_backend,
+                                         creds_provider=creds_provider,
+                                         default_user=user1,
+                                         default_pwd=user1_pwd,
+                                         alter_user=user2,
+                                         alter_pwd=user2_pwd,
+                                         ext_net_cidr=ext_net_cidr,
+                                         ext_net_start_ip=ext_net_start_ip,
+                                         ext_net_end_ip=ext_net_end_ip,
+                                         ext_net_gateway=ext_net_gateway,
+                                         tempest_log_file=tempest_log_file,
+                                         admin_tenant=admin_tenant)
+            tempest_utils.generate_run_list(neutron_backend)
+        else:
+            LOG.info('Tempest already exists. Skip set up tempest.')
+
+    def run(self):
+        tempest_utils.run_test(self.test_name, self.log_dir)
+
+    def check_results(self):
+        # TODO (xiaoy): check if test fails
+        return PASS
+
+    def clean_up(self):
+        pass
+
+CLS_MAP = {'oms-api': OMSAPI,
+           'nova': Tempest,
+           'cinder': Tempest,
+           'neutron': Tempest,
+           'heat': Tempest,
+           'keystone': Tempest,
+           'glance': Tempest,
+           'scenario': Tempest}

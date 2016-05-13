@@ -1,0 +1,12 @@
+buildwebapi>=0.0.2
+ssh-util
+shell-util
+oms-client
+pyVmomiwrapper>=0.0.2
+python-keystoneclient
+python-neutronclient
+python-novaclient
+python-subunit
+junitxml
+testtools
+m2crypto

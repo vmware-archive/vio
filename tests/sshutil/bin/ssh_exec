@@ -1,0 +1,47 @@
+#!/usr/bin/python
+import logging
+import sys
+
+import argparse
+
+from sshutil.remote import RemoteClient
+
+LOG = logging.getLogger('sshutil')
+
+
+def configure_logging():
+    LOG.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(message)s')
+
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.DEBUG)
+    console_handler.setFormatter(formatter)
+    LOG.addHandler(console_handler)
+
+
+def main():
+    configure_logging()
+    parser = argparse.ArgumentParser(
+        prog='ssh_exec',
+        description='ssh to remote and execute commands.')
+    parser.add_argument('host',
+                        help='IP address or hostname.')
+    parser.add_argument('user',
+                        help='User name.')
+    parser.add_argument('password',
+                        help='Password of the user.')
+    parser.add_argument('command',
+                        help='Command to run.')
+    parser.add_argument('--sudo',
+                        action="store_true",
+                        default=False,
+                        help='Execute with sudo.')
+    args = parser.parse_args()
+    rc = RemoteClient(args.host, args.user, args.password)
+    rc.run(args.command, sudo=args.sudo)
+    return rc.last_exit_status
+
+
+if __name__ == '__main__':
+    sys.exit(main())
+
