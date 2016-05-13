@@ -82,7 +82,7 @@ Make a report directory and kick off tests with below commands:
   panda tempest run 'keystone,glance,nova,cinder,neutron,heat,scenario' --report-dir reports/
 
 Note: HTML reports will be generated to specified report dir and logs of tempest
-are written to <report dir>/tempest.log. Any error during 'panda' command please refer
+are written to tempest/tempest.log. Any error during 'panda' command please refer
 to panda.log. Only scenario is recommended for health verification.
 
 
