@@ -58,7 +58,7 @@ keystone backend.
   # Configure tempest against a NSXv neutron/LDAP keystone backend VIO.
   panda tempest config '192.168.111.160' 'vioadmin@vio.com' 'VMware1!' 'nsxv' --credentials-provider 'legacy' --user1 'xiaoy@vio.com' --user1-password 'VMware1!' --user2 'sren@vio.com' --user2-password 'VMware1!' --ext-cidr '192.168.112.0/24' --ext-start-ip '192.168.112.170' --ext-end-ip '192.168.112.200' --ext-gateway '192.168.112.1'
   # Configure tempest against a DVS neutron VIO.
-  panda tempest config '192.168.111.153' 'admin' 'vmware' 'dvs' --credentials-provider 'legacy' --user1 'default' --user1-password 'vmware' --user2 'alt-user' --user2-password  'vmware'
+  panda tempest config '192.168.111.153' 'admin' 'vmware' 'dvs' --credentials-provider 'legacy' --user1 'default-tempest' --user1-password 'vmware' --user2 'alt-user-tempest' --user2-password  'vmware'
 
 
 Note:

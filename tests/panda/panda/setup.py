@@ -58,6 +58,9 @@ class VIO(Openstack):
             build_utils.get_ova_url(self.build_id)
         self.vapp_name = os.path.basename(self.ova_path).replace('.ova', '')
         self.cluster_spec = cluster_spec
+        self.omjs_properties = oms_spec['omjs_properties']
+        self.upgrade_index = 1
+        self.cluster_name = cluster_spec['name'] if cluster_spec else 'VIO'
 
     def deploy_vapp(self):
         if not oms_utils.check_vapp_exists(self.vc_host, self.vc_user,
@@ -81,6 +84,21 @@ class VIO(Openstack):
             LOG.info('VIO vApp already exists. Skip deploying vApp.')
         self.oms_ctl = OmsController(self.oms_ip, self.vc_user, self.vc_pwd)
 
+    def upgrade(self, public_vip, private_vip):
+        oms_utils.wait_for_mgmt_service(self.oms_ip, self.vc_host, self.vc_pwd)
+        # Write back the same omjs properties since b2b patch overwrite them.
+        self.config_omjs(self.omjs_properties)
+        blue_name = self.cluster_name
+        self.cluster_name = 'UPGRADE%s' % self.upgrade_index
+        try:
+            cluster_utils.upgrade(self.oms_ctl, blue_name, self.cluster_name,
+                                  public_vip, private_vip)
+        except Exception:
+            self.get_support_bundle()
+            raise
+        self.upgrade_index += 1
+        return cluster_utils.get_cluster(self.oms_ctl, self.cluster_name)
+
     def get_version(self):
         if not self.version:
             self.version = oms_utils.get_vapp_version(self.vc_host,
@@ -89,9 +107,10 @@ class VIO(Openstack):
                                                       self.vapp_name)
         return self.version
 
-    def is_running(self):
+    def is_running(self, cluster_name):
         try:
             return cluster_utils.check_cluster_status(self.oms_ctl,
+                                                      cluster_name,
                                                       ['RUNNING'])
         except Exception, error:
             LOG.debug('Failed to retrieve VIO cluster status: %s' % error)
@@ -107,7 +126,7 @@ class VIO(Openstack):
         self.oms_ctl = OmsController(self.oms_ip, self.vc_user, self.vc_pwd)
 
     def deploy_openstack(self):
-        if not self.is_running():
+        if not self.is_running(self.cluster_spec['name']):
             # TODO(xiaoy): Remove provision failed cluster
             # Add compute VC if multiple VC
             attrs = cluster_utils.get_controller_attrs(self.cluster_spec)
@@ -137,8 +156,7 @@ class VIO(Openstack):
                      'Skip creating OpenStack cluster.')
 
     def get_support_bundle(self):
-        name = self.cluster_spec['name'] if self.cluster_spec else 'VIO'
-        spec = {"deployment_name": name}
+        spec = {"deployment_name": self.cluster_name}
         json_str = json.dumps(spec)
         try:
             # Rest client session always time out after tests

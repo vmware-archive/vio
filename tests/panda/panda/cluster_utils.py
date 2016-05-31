@@ -5,11 +5,14 @@ import ssl
 
 from M2Crypto import X509
 from exceptions import ProvisionError
+
 from exceptions import NotCompletedError
+from exceptions import NotFoundError
 from pyVmomiwrapper.vmwareapi import VirtualCenter
 from pyVmomiwrapper.vmwareapi import DataStore
 from pyVmomiwrapper.vmwareapi import DistributedVirtualSwitch
 import task_utils
+from omsclient import utils as cli_utils
 
 
 LOG = logging.getLogger(__name__)
@@ -63,36 +66,44 @@ def delete_cluster(oms_ctl, name="VIO"):
     # TODO: verify cluster has been cleaned or raise exception
 
 
-def check_creation_completed(oms_ctl):
-    if not check_cluster_status(oms_ctl, ["RUNNING", "PROVISION_ERROR"]):
+def check_creation_completed(oms_ctl, cluster_name):
+    if not check_cluster_status(oms_ctl, cluster_name,
+                                ["RUNNING", "PROVISION_ERROR"]):
         raise NotCompletedError("Provisioning is not completed")
 
 
-def get_private_vip(oms_ctl):
+def get_cluster(oms_ctl, cluster_name):
     clusters = oms_ctl.list_deployments().json()
-    load_balance = get_nodegroup_by_role(clusters[0], 'LoadBalancer')
+    for cluster in clusters:
+        if cluster['name'] == cluster_name:
+            return cluster
+    raise NotFoundError('Cluster %s not Found.' % cluster_name)
+
+
+def get_private_vip(oms_ctl, cluster_name):
+    cluster = get_cluster(oms_ctl, cluster_name)
+    load_balance = get_nodegroup_by_role(cluster, 'LoadBalancer')
     private_vip = load_balance['attributes']['internal_vip']
     LOG.debug('Private VIP: %s' % private_vip)
     return private_vip
 
 
-def get_node_error(oms_ctl):
-    clusters = oms_ctl.list_deployments().json()
-    nodes = clusters[0]['nodeGroups']
-    for node in nodes:
-        for instance in node['instances']:
+def get_node_error(oms_ctl, cluster_name):
+    cluster = get_cluster(oms_ctl, cluster_name)
+    groups = cluster['nodeGroups']
+    for group in groups:
+        for instance in group['instances']:
             if instance['status'] == 'Bootstrap Failed':
                 return 'Ansible error'
     return 'OMS java error'
 
 
-def check_cluster_status(oms_ctl, status_list):
-    clusters = oms_ctl.list_deployments().json()
-    if clusters:
-        status = clusters[0]['status']
-        LOG.debug('Cluster status: %s' % status)
-        if status in status_list:
-            return True
+def check_cluster_status(oms_ctl, cluster_name, status_list):
+    cluster = get_cluster(oms_ctl, cluster_name)
+    status = cluster['status']
+    LOG.debug('Cluster status: %s' % status)
+    if status in status_list:
+        return True
     return False
 
 
@@ -102,12 +113,13 @@ def create_openstack_cluster(oms_ctl, cluster_spec, timeout=3600):
     resp = oms_ctl.create_deployment_by_spec(cluster_spec)
     if resp.status_code == 202:
         task_utils.wait_for(func=check_creation_completed, timeout=timeout,
-                            delay=60, oms_ctl=oms_ctl)
-        if check_cluster_status(oms_ctl, ['RUNNING']):
+                            delay=60, oms_ctl=oms_ctl,
+                            cluster_name=cluster_spec['name'])
+        if check_cluster_status(oms_ctl, cluster_spec['name'], ['RUNNING']):
             LOG.info('Successfully deployed OpenStack Cluster.')
         else:
             LOG.error('Openstack cluster status is not running!')
-            cause = get_node_error(oms_ctl)
+            cause = get_node_error(oms_ctl, cluster_spec['name'])
             LOG.error('Detected %s' % cause)
             raise ProvisionError(cause)
     else:
@@ -274,3 +286,30 @@ def refresh_syslog_tag(cluster_spec, build_id):
 
 def get_controller_attrs(cluster_spec):
     return get_nodegroup_by_role(cluster_spec, 'Controller')['attributes']
+
+
+def upgrade(oms_ctl, blue_name, green_name, public_vip, private_vip):
+    LOG.info('Start to upgrade VIO cluster.')
+    delay = 60
+    timeout = 60 * 60
+    # Create green cluster
+    spec = {'clusterName': green_name,
+            'publicVIP': public_vip,
+            'internalVIP': private_vip}
+    LOG.debug('Upgrade provision spec: %s', spec)
+    resp = oms_ctl.upgrade_provision(blue_name, spec)
+    cli_utils.validate_task_succeeded(oms_ctl, 'Create green cluster', resp,
+                                      delay, timeout)
+    # Migrate data
+    LOG.debug('Migrate data from cluster: %s', blue_name)
+    resp = oms_ctl.upgrade_migrate_data(blue_name)
+    cli_utils.validate_task_succeeded(oms_ctl, 'Migrate data', resp, delay,
+                                      timeout)
+    # Switch to green cluster
+    LOG.debug('Switch from cluster: %s', blue_name)
+    resp = oms_ctl.upgrade_switch_to_green(blue_name)
+    cli_utils.validate_task_succeeded(oms_ctl, 'Switch to green cluster', resp,
+                                      delay, timeout)
+    if not check_cluster_status(oms_ctl, green_name, ['RUNNING']):
+        raise ProvisionError('Upgrading VIO cluster failed.')
+    LOG.info('Successfully upgraded VIO cluster.')

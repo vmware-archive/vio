@@ -12,3 +12,7 @@ class NotCompletedError(Exception):
 
 class TimeoutError(Exception):
     """Time out exceptions"""
+
+
+class NotFoundError(Exception):
+    """Not Found exceptions"""

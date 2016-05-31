@@ -147,7 +147,8 @@ class Tempest(Test):
             oms_ctl = OmsController(self.oms_spec['host_ip'],
                                     self.oms_spec['vc_user'],
                                     self.oms_spec['vc_password'])
-            private_vip = cluster_utils.get_private_vip(oms_ctl)
+            private_vip = cluster_utils.get_private_vip(
+                oms_ctl, self.cluster_spec['name'])
             if not private_vip:
                 raise NotSupportedError('Can not get private VIP.')
             tempest_utils.config_tempest(private_vip=private_vip,
@@ -167,19 +168,51 @@ class Tempest(Test):
                                          admin_tenant=admin_tenant)
             tempest_utils.generate_run_list(neutron_backend)
         else:
-            LOG.info('Tempest already exists. Skip set up tempest.')
+            LOG.info('Tempest already exists. Skip setting up it.')
 
     def run(self):
         tempest_utils.run_test(self.test_name, self.log_dir)
 
     def check_results(self):
-        # TODO (xiaoy): check if test fails
+        # TODO (xiaoy): pass, rerun pass or fail
+        return PASS
+
+    def clean_up(self):
+        pass
+
+
+class VMwareTempest(Tempest):
+    def set_up(self):
+        if not os.path.exists('vmware_tempest/run-tests.txt'):
+            super(VMwareTempest, self).set_up()
+            tempest_utils.install_vmware_tempest()
+            if 'compute_vc_host' in self.oms_spec:
+                # Use compute VC in multi-VC setup.
+                vc_host = self.oms_spec['compute_vc_host']
+                vc_user = self.oms_spec['compute_vc_user']
+                vc_password = self.oms_spec['compute_vc_password']
+            else:
+                vc_host = self.oms_spec['vc_host']
+                vc_user = self.oms_spec['vc_user']
+                vc_password = self.oms_spec['vc_password']
+            tempest_utils.config_vmware_tempest(vc_host=vc_host,
+                                                vc_user=vc_user,
+                                                vc_password=vc_password)
+            tempest_utils.generate_vmware_run_list()
+        else:
+            LOG.info('VMware tempest already exists. Skip setting up it.')
+
+    def run(self):
+        tempest_utils.run_vmware_test(self.log_dir)
+
+    def check_results(self):
         return PASS
 
     def clean_up(self):
         pass
 
 CLS_MAP = {'oms-api': OMSAPI,
+           'vmware': VMwareTempest,
            'nova': Tempest,
            'cinder': Tempest,
            'neutron': Tempest,

@@ -31,14 +31,23 @@ def get_patch_url(build_id):
     return get_url(build_id, '_all.deb')
 
 
+def get_upgrade_url(build_id):
+    return get_url(build_id, 'vio-upgrade-')
+
+
 def get_url(build_id, deliverable_name):
-    build_id, build_system = get_build_id_and_system(build_id)
-    build = buildapi.ItemResource.by_id('build', int(build_id), build_system)
+    build = get_build(build_id)
     deliverables = buildapi.ListResource.by_url(build._deliverables_url)
     deliverable = [d for d in deliverables
                    if d.matches(path=deliverable_name)][0]
     LOG.debug('Download URL of %s is %s', build_id, deliverable._download_url)
     return deliverable._download_url
+
+
+def get_product(build_id):
+    build = get_build(build_id)
+    LOG.debug('Product of %s is %s.', build_id, build.product)
+    return build.product
 
 
 def download_ova(build_id, path=None):
@@ -48,6 +57,11 @@ def download_ova(build_id, path=None):
 
 def download_patch(build_id, path=None):
     deb_url = get_patch_url(build_id)
+    return download_file(deb_url, path)
+
+
+def download_upgrade(build_id, path=None):
+    deb_url = get_upgrade_url(build_id)
     return download_file(deb_url, path)
 
 

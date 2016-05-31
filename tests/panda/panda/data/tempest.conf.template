@@ -402,31 +402,6 @@ volume_device_name=vdb
 #build_interval=1
 
 
-[compute-admin]
-tenant_name = admin
-password = passw0rd
-username = admin
-
-#
-# Options defined in tempest.config
-#
-
-# Administrative Username to use for Nova API requests.
-# (string value)
-#username=<None>
-
-# Administrative Tenant name to use for Nova API requests.
-# (string value)
-#tenant_name=<None>
-
-# API key to use when authenticating as admin. (string value)
-#password=<None>
-
-# Domain name for authentication as admin (Keystone V3).The
-# same domain applies to user and project (string value)
-#domain_name=<None>
-
-
 [compute-feature-enabled]
 block_migration_for_live_migration = False
 change_password = False

@@ -114,8 +114,8 @@ def config_tempest(args):
                                      ext_net_gateway=args.ext_gateway)
         tempest_utils.generate_run_list(args.neutron_backend)
     else:
-        LOG.error('tempest/etc/tempest.conf not Found. '
-                  'Please run panda tempest install first.')
+        LOG.error('%s not found. Please run "panda tempest install" first.',
+                  conf_path)
 
 
 def run_tempest(args):
@@ -125,10 +125,38 @@ def run_tempest(args):
         test = test.strip()
         test_list = 'tempest/%s.txt' % test
         if not os.path.exists(test_list):
-            LOG.error('%s not Found. Please run panda tempest config first.'
+            LOG.error('%s not Found. Please run "panda tempest config" first.'
                       % test_list)
             return
         tempest_utils.run_test(test, report_dir, args.parallel, args.rerun)
+
+
+def install_vmware_tempest(args):
+    if os.path.exists('tempest/included-tests.txt'):
+        tempest_utils.install_vmware_tempest()
+    else:
+        LOG.error('Please run "panda tempest install/config" first.')
+
+
+def config_vmware_tempest(args):
+    conf_path = 'vmware_tempest/vmware_tempest.cfg'
+    if os.path.exists(conf_path):
+        tempest_utils.config_vmware_tempest(
+            vc_host=args.vc_host,
+            vc_user=args.vc_user,
+            vc_password=args.vc_password)
+        tempest_utils.generate_vmware_run_list()
+    else:
+        LOG.error('%s not found. Please run "panda vmware_tempest install" '
+                  'first.', conf_path)
+
+
+def run_vmware_tempest(args):
+    if os.path.exists('vmware_tempest/run-tests.txt'):
+        report_dir = args.report_dir if args.report_dir else os.getcwd()
+        tempest_utils.run_vmware_test(report_dir)
+    else:
+        LOG.error('Please run "panda vmware_tempest config" first.')
 
 
 def go(args):
@@ -360,6 +388,34 @@ def add_tempest_parser(sub_parsers):
     tempest_config_parser.set_defaults(func=run_tempest)
 
 
+def add_vmware_tempest_parser(sub_parsers):
+    # vmware_tempest commands
+    tempest_parser = sub_parsers.add_parser(
+        'vmware_tempest', help='VMware tempest tests operation.')
+    tempest_sub_parsers = tempest_parser.add_subparsers(help='sub commands')
+    # install tempest
+    tempest_install_parser = tempest_sub_parsers.add_parser(
+        'install', help='Install VMware tempest.')
+    tempest_install_parser.set_defaults(func=install_vmware_tempest)
+    # configure tempest
+    tempest_config_parser = tempest_sub_parsers.add_parser(
+        'config', help='Configure VMware tempest.')
+    tempest_config_parser.add_argument('vc_host',
+                                       help='vCenter IP or hostname.')
+    tempest_config_parser.add_argument('vc_user',
+                                       help='vCenter user name.')
+    tempest_config_parser.add_argument('vc_password',
+                                       help='vCenter user password')
+    tempest_config_parser.set_defaults(func=config_vmware_tempest)
+    # run tempest
+    tempest_config_parser = tempest_sub_parsers.add_parser(
+        'run', help='Run VMware tempest tests.')
+    tempest_config_parser.add_argument('--report-dir',
+                                       dest='report_dir',
+                                       help='Dir to generate reports. Current '
+                                            'dir by default.')
+    tempest_config_parser.set_defaults(func=run_vmware_tempest)
+
 def add_go_parser(sub_parsers):
     oms_spec = """
     {
@@ -420,6 +476,7 @@ def main():
     add_oms_parser(sub_parsers)
     add_cluster_parser(sub_parsers)
     add_tempest_parser(sub_parsers)
+    add_vmware_tempest_parser(sub_parsers)
     add_go_parser(sub_parsers)
     args = panda_parser.parse_args()
     LOG.debug('Arguments: %s' % args)

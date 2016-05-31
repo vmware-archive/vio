@@ -152,7 +152,7 @@ def get_patch_info(output, patch_version):
                 return {'Name': items[0],
                         'Version': items[1],
                         'Type': items[2],
-                        'Installed': items[3]}
+                        'Installed': items[-1]}
     raise NotSupportedError('Patch %s not added' % patch_version)
 
 
@@ -170,6 +170,6 @@ def apply_patch(ip, file_path, user='viouser', password='vmware'):
                             log_method='info')
     patch_info = get_patch_info(output, patch_version)
     if patch_info['Installed'] != 'Yes':
-        LOG.error('Installing patch failed. %s' % patch_info)
-        raise NotCompletedError('Installing %s failed.' % file_path)
+        LOG.error('Applying patch failed. %s' % patch_info)
+        raise NotCompletedError('Applying %s failed.' % file_path)
     LOG.info('Successfully Applied patch %s' % patch_version)

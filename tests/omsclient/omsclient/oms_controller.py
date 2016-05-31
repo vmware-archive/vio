@@ -67,7 +67,7 @@ class OmsController(object):
         resp = self.rest_client.do_get('vcip')
         return resp
 
-    def add_datastore(self, spec):
+    def cluster_config(self, spec):
         resp = self.rest_client.do_put("cluster/VIO/config", spec)
         return resp
 
@@ -126,6 +126,12 @@ class OmsController(object):
 
     def increase_ips(self, nw, spec):
         api_url_template = "network/{}"
+        url = api_url_template.format(nw)
+        resp = self.rest_client.do_put(url, spec)
+        return resp
+
+    def update_dns(self, nw, spec):
+        api_url_template = "network/{}/async"
         url = api_url_template.format(nw)
         resp = self.rest_client.do_put(url, spec)
         return resp
