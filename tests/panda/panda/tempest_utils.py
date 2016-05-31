@@ -28,6 +28,15 @@ PACKAGE_MAP = {'nova': 'tempest.api.compute',
 LEGACY_PROVIDER = 'legacy'
 DYNAMIC_PROVIDER = 'dynamic'
 PRE_PROVISIONED_PROVIDER = 'pre-provisioned'
+ROLE_NAME = 'member-tempest'
+STORAGE_ROLE_NAME = 'storage-ops-tempest'
+IMAGE_NAME = 'ubuntu-14.04-server-amd64'
+FLAVOR1_NAME = 'm1-tempest'
+FLAVOR2_NAME = 'm2-tempest'
+DATA_NET_NAME = 'flat-tempest'
+EXT_NET_NAME = 'public-tempest'
+TENANT_NAME = 'default-tenant-tempest'
+ALT_TENANT_NAME = 'alt-tenant-tempest'
 
 
 def get_data_path():
@@ -103,17 +112,17 @@ def config_identity(config_parser, auth_url, admin_user_name, admin_pwd,
     config_parser.set('identity', 'uri_v3', uri_v3)
     config_parser.set('identity', 'uri', auth_url)
     # Create member role
-    create_if_not_exist(keystone.roles, 'role', 'member-tempest')
-    config_parser.set('auth', 'tempest_roles', 'member-tempest')
+    create_if_not_exist(keystone.roles, 'role', ROLE_NAME)
+    config_parser.set('auth', 'tempest_roles', ROLE_NAME)
     if LEGACY_PROVIDER == creds_provider:
         # Create default tenant and user
         default_tenant = create_if_not_exist(keystone.tenants, 'tenant',
-                                             'default-tenant-tempest')
+                                             TENANT_NAME)
         default_user = create_if_not_exist(keystone.users, 'user',
                                            default_user_name,
                                            password=default_pwd,
                                            tenant_id=default_tenant.id)
-        config_parser.set('identity', 'tenant_name', 'default-tenant-tempest')
+        config_parser.set('identity', 'tenant_name', TENANT_NAME)
         config_parser.set('identity', 'username', default_user_name)
         config_parser.set('identity', 'password', default_pwd)
         admin_role = get_entity(keystone.roles, 'role', 'admin')
@@ -121,11 +130,11 @@ def config_identity(config_parser, auth_url, admin_user_name, admin_pwd,
                            admin_role)
         # Create alter tenant and user
         alt_tenant = create_if_not_exist(keystone.tenants, 'tenant',
-                                         'alt-tenant-tempest')
+                                         ALT_TENANT_NAME)
         alt_user = create_if_not_exist(keystone.users, 'user', alt_user_name,
                                        password=alt_pwd,
                                        tenant_id=alt_tenant.id)
-        config_parser.set('identity', 'alt_tenant_name', 'alt-tenant-tempest')
+        config_parser.set('identity', 'alt_tenant_name', ALT_TENANT_NAME)
         config_parser.set('identity', 'alt_username', alt_user_name)
         config_parser.set('identity', 'alt_password', alt_pwd)
         add_user_to_tenant(keystone, alt_tenant, alt_user, admin_role)
@@ -133,8 +142,8 @@ def config_identity(config_parser, auth_url, admin_user_name, admin_pwd,
     else:
         config_parser.set('auth', 'allow_tenant_isolation', 'true')
     # Create role for object storage
-    create_if_not_exist(keystone.roles, 'role', 'storage-ops-tempest')
-    config_parser.set('object-storage', 'operator_role', 'storage-ops-tempest')
+    create_if_not_exist(keystone.roles, 'role', STORAGE_ROLE_NAME)
+    config_parser.set('object-storage', 'operator_role', STORAGE_ROLE_NAME)
     # Create role and add it to admin user for heat tempest tests.
     heat_role = get_entity(keystone.roles, 'role', 'heat_stack_owner')
     if not heat_role:
@@ -155,7 +164,7 @@ def config_compute(config_parser, auth_url, user_name, password,
         raise NotSupportedError('At least 1 image in glance is required.')
     default_image = images[0]
     for image in images:
-        if image.name == 'ubuntu-14.04-server-amd64':
+        if image.name == IMAGE_NAME:
             default_image = image
             images.remove(image)
     LOG.info('Use image %s as default image in tempest', default_image.name)
@@ -164,10 +173,10 @@ def config_compute(config_parser, auth_url, user_name, password,
     config_parser.set('compute', 'image_ref', default_image.id)
     config_parser.set('compute', 'image_ref_alt', alt_image.id)
     # Create the flavors
-    m1 = create_if_not_exist(nova.flavors, 'flavor', 'm1-tempest', ram=512,
+    m1 = create_if_not_exist(nova.flavors, 'flavor', FLAVOR1_NAME, ram=512,
                              vcpus=1, disk=10, is_public=True)
     config_parser.set('compute', 'flavor_ref', m1.id)
-    m2 = create_if_not_exist(nova.flavors, 'flavor', 'm2-tempest', ram=1024,
+    m2 = create_if_not_exist(nova.flavors, 'flavor', FLAVOR2_NAME, ram=1024,
                              vcpus=2, disk=10, is_public=True)
     config_parser.set('compute', 'flavor_ref_alt', m2.id)
     config_parser.set('compute-feature-enabled', 'pause', 'false')
@@ -187,15 +196,14 @@ def config_network(config_parser, auth_url, user_name, password,
     neutron = neutron_client.Client(username=user_name, password=password,
                                     tenant_name=tenant_name, auth_url=auth_url,
                                     insecure=True, endpoint_type=endpoint_type)
-    data_net_name = 'flat-tempest'
-    data_network = get_network(neutron, data_net_name)
+    data_network = get_network(neutron, DATA_NET_NAME)
     if not data_network:
         # Create data network
         if NSXV_BACKEND == neutron_backend:
             net_spec = {
                 "network":
                     {
-                        "name": data_net_name,
+                        "name": DATA_NET_NAME,
                         "admin_state_up": True
                     }
             }
@@ -204,12 +212,12 @@ def config_network(config_parser, auth_url, user_name, password,
                 "network":
                     {
                         "provider:network_type": "flat",
-                        "name": data_net_name,
+                        "name": DATA_NET_NAME,
                         "provider:physical_network": "dvs",
                         "admin_state_up": True
                     }
             }
-        LOG.info("Create data network flat-tempest.")
+        LOG.info("Create data network %s.", DATA_NET_NAME)
         data_network = neutron.create_network(net_spec)['network']
         # Create data subnet
         subnet_spec = {
@@ -221,25 +229,24 @@ def config_network(config_parser, auth_url, user_name, password,
                     'enable_dhcp': True
                 }
         }
-        LOG.info("Create flat-tempest subnet.")
+        LOG.info("Create %s subnet.", DATA_NET_NAME)
         neutron.create_subnet(subnet_spec)
     else:
-        LOG.info("Found data network flat-tempest")
-    config_parser.set('compute', 'fixed_network_name', data_net_name)
+        LOG.info("Found data network %s", DATA_NET_NAME)
+    config_parser.set('compute', 'fixed_network_name', DATA_NET_NAME)
     if NSXV_BACKEND == neutron_backend:
-        ext_net_name = 'public-tempest'
-        ext_network = get_network(neutron, ext_net_name)
+        ext_network = get_network(neutron, EXT_NET_NAME)
         if not ext_network:
             # Create external network
             net_spec = {
                 "network":
                     {
                         "router:external": "True",
-                        "name": ext_net_name,
+                        "name": EXT_NET_NAME,
                         "admin_state_up": True
                     }
             }
-            LOG.info("Create external network public-tempest.")
+            LOG.info("Create external network %s.", EXT_NET_NAME)
             ext_network = neutron.create_network(net_spec)['network']
             # Create external subnet
             subnet_spec = {
@@ -254,10 +261,10 @@ def config_network(config_parser, auth_url, user_name, password,
                                               "end": ext_net_end_ip}]
                     }
             }
-            LOG.info("Create public-tempest subnet.")
+            LOG.info("Create %s subnet.", EXT_NET_NAME)
             neutron.create_subnet(subnet_spec)
         else:
-            LOG.info("Found external network public-tempest")
+            LOG.info("Found external network %s", EXT_NET_NAME)
         config_parser.set('network', 'public_network_id', ext_network['id'])
         config_parser.set('network-feature-enabled', 'api_extensions',
                           'binding, dist-router, multi-provider, provider, '
