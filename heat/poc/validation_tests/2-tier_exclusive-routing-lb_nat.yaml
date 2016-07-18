@@ -238,10 +238,10 @@ resources:
 
 outputs:
   WebsiteURL:
-    description: URL for manager
+    description: URL for WebServerTier
     value:
       str_replace:
-        template: http://host/
+        template: http://host/file.txt
         params:
           host: { get_attr: [ lb_floating, floating_ip_address ] }
 
