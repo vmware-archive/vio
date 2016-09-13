@@ -3,6 +3,7 @@ import logging
 import time
 
 from exceptions import TimeoutError
+from shellutil import shell
 
 
 LOG = logging.getLogger(__name__)
@@ -28,3 +29,12 @@ def wait_for(func, timeout, delay, *args, **kargs):
                 LOG.debug('Sleeping %s seconds before retrying'
                           '' % poll_sleep_retry)
                 time.sleep(poll_sleep_retry)
+
+
+def safe_run(cmd, msg, sleep_time=180):
+    exit_code = shell.local(cmd)[0]
+    if exit_code:
+        LOG.warning('Failed to %s. Retry it after %s seconds' %
+                    (msg, sleep_time))
+        time.sleep(sleep_time)
+        shell.local(cmd, raise_error=True)

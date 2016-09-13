@@ -5,20 +5,19 @@ import ssl
 
 from M2Crypto import X509
 from exceptions import ProvisionError
-
 from exceptions import NotCompletedError
 from exceptions import NotFoundError
 from pyVmomiwrapper.vmwareapi import VirtualCenter
 from pyVmomiwrapper.vmwareapi import DataStore
 from pyVmomiwrapper.vmwareapi import DistributedVirtualSwitch
-import task_utils
-from omsclient import utils as cli_utils
 
 
 LOG = logging.getLogger(__name__)
 DVS_BACKEND = 'dvs'
 NSXV_BACKEND = 'nsxv'
+NSXT_BACKEND = 'nsxt'
 VCENTER_PORT = 443
+LDAP_BACKEND = 'ldap'
 
 
 def get_nodegroup_by_name(cluster_spec, name):
@@ -63,7 +62,6 @@ def create_deployment_plan(oms_ctl, cluster_spec):
 def delete_cluster(oms_ctl, name="VIO"):
     LOG.info('Deleting Openstack cluster %s' % name)
     oms_ctl.delete_deployment(name)
-    # TODO: verify cluster has been cleaned or raise exception
 
 
 def check_creation_completed(oms_ctl, cluster_name):
@@ -107,23 +105,19 @@ def check_cluster_status(oms_ctl, cluster_name, status_list):
     return False
 
 
-def create_openstack_cluster(oms_ctl, cluster_spec, timeout=3600):
+def create_openstack_cluster(oms_ctl, cluster_spec):
     LOG.info('Start to create OpenStack Cluster.')
-    LOG.debug("Create OpenStack Cluster with spec: %s" % cluster_spec)
-    resp = oms_ctl.create_deployment_by_spec(cluster_spec)
-    if resp.status_code == 202:
-        task_utils.wait_for(func=check_creation_completed, timeout=timeout,
-                            delay=60, oms_ctl=oms_ctl,
-                            cluster_name=cluster_spec['name'])
-        if check_cluster_status(oms_ctl, cluster_spec['name'], ['RUNNING']):
-            LOG.info('Successfully deployed OpenStack Cluster.')
-        else:
-            LOG.error('Openstack cluster status is not running!')
-            cause = get_node_error(oms_ctl, cluster_spec['name'])
-            LOG.error('Detected %s' % cause)
-            raise ProvisionError(cause)
+    try:
+        oms_ctl.create_deployment_by_spec(cluster_spec)
+    except Exception:
+        LOG.exception('Creating cluster error.')
+    if check_cluster_status(oms_ctl, cluster_spec['name'], ['RUNNING']):
+        LOG.info('Successfully deployed OpenStack Cluster.')
     else:
-        raise ProvisionError('Failed to create Openstack cluster by spec.')
+        LOG.error('Openstack cluster status is not running!')
+        cause = get_node_error(oms_ctl, cluster_spec['name'])
+        LOG.error('Detected %s' % cause)
+        raise ProvisionError(cause)
 
 
 def get_vc_fingerprint(vcenter_ip):
@@ -152,6 +146,12 @@ def add_compute_vc(oms_ctl, ssh_client, vcenter_insecure, vcenter_ip, user,
     resp = oms_ctl.add_compute_vc(spec)
     if resp.status_code != 200:
         raise ProvisionError('Failed to add compute cluster. Spec: %s' % spec)
+
+
+def get_cluster_moid(vc_host, vc_user, vc_pwd, datacenter, cluster):
+    with VirtualCenter(vc_host, vc_user, vc_pwd) as vc:
+        dc_mor = vc.get_datacenter(datacenter)
+        return dc_mor.get_cluster(cluster).moid
 
 
 def get_moids(vc_host, vc_user, vc_pwd, datacenter, mgmt_cluster,
@@ -288,28 +288,26 @@ def get_controller_attrs(cluster_spec):
     return get_nodegroup_by_role(cluster_spec, 'Controller')['attributes']
 
 
-def upgrade(oms_ctl, blue_name, green_name, public_vip, private_vip):
+def upgrade(oms_ctl, blue_name, green_name, spec):
     LOG.info('Start to upgrade VIO cluster.')
-    delay = 60
-    timeout = 60 * 60
     # Create green cluster
-    spec = {'clusterName': green_name,
-            'publicVIP': public_vip,
-            'internalVIP': private_vip}
-    LOG.debug('Upgrade provision spec: %s', spec)
-    resp = oms_ctl.upgrade_provision(blue_name, spec)
-    cli_utils.validate_task_succeeded(oms_ctl, 'Create green cluster', resp,
-                                      delay, timeout)
+    LOG.debug('Create green cluster %s', green_name)
+    oms_ctl.upgrade_provision(blue_name, spec)
     # Migrate data
     LOG.debug('Migrate data from cluster: %s', blue_name)
-    resp = oms_ctl.upgrade_migrate_data(blue_name)
-    cli_utils.validate_task_succeeded(oms_ctl, 'Migrate data', resp, delay,
-                                      timeout)
+    oms_ctl.upgrade_migrate_data(blue_name)
     # Switch to green cluster
     LOG.debug('Switch from cluster: %s', blue_name)
-    resp = oms_ctl.upgrade_switch_to_green(blue_name)
-    cli_utils.validate_task_succeeded(oms_ctl, 'Switch to green cluster', resp,
-                                      delay, timeout)
+    oms_ctl.upgrade_switch_to_green(blue_name)
     if not check_cluster_status(oms_ctl, green_name, ['RUNNING']):
         raise ProvisionError('Upgrading VIO cluster failed.')
     LOG.info('Successfully upgraded VIO cluster.')
+
+
+def get_compute_cluster_moids(cluster_spec):
+    compute_group = get_nodegroup_by_role(cluster_spec, 'Compute')
+    instances = compute_group['instances']
+    moids = list()
+    for instance in instances:
+        moids.append(instance['attributes']['cluster_moid'])
+    return moids

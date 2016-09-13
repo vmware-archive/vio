@@ -81,3 +81,7 @@ vmware_tempest.cinder.tests.expire_session_test.expire_session.test_vol_delete_w
 vmware_tempest.cinder.tests.expire_session_test.expire_session.test_vol_detach
 vmware_tempest.cinder.tests.expire_session_test.expire_session.test_vol_from_snapshot
 vmware_tempest.cinder.tests.expire_session_test.expire_session.test_vol_from_snapshot_withBacking
+
+# Pending on bug #1695079
+vmware_tempest.scenario.test_iso_scenario.IsoScenarioTests.test_boot_from_volume
+vmware_tempest.scenario.test_iso_scenario.IsoScenarioTests.test_boot_from_volume_snapshot

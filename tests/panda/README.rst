@@ -15,7 +15,7 @@ Installation
 Usage
 ======
 System libs are required by tempest:
-python-dev libffi-dev libssl-dev, install them by apt-get install.
+python-dev, libffi-dev, libssl-dev, git, swig, libxml2-dev, libxslt-dev. Install them by apt-get install.
 
 python virtualenv is required by 'panda tempest' command, install them beforehand.
 
@@ -37,22 +37,25 @@ Create Openstack cluster:
 Delete Openstack cluster:
  panda cluster delete "192.168.111.151" 'Administrator@vsphere.local' 'Admin!23'
 
+Enable LDAP backend admin user on multiple backend setup.
+ panda openstack enable_ldap_admin '192.168.111.160' 'admin' 'vmware' 'vioadmin@vio.com'
+
 Run tempest:
  Step 1
   Install tempest:
    panda tempest install
 
  Step 2
-  Configure tempest against a SQL keystone backend VIO:
-   panda tempest config '192.168.111.160' 'admin' 'vmware' 'nsxv' --ext-cidr '192.168.112.0/24' --ext-start-ip '192.168.112.170' --ext-end-ip '192.168.112.200' --ext-gateway '192.168.112.1'
+  Configure tempest against a SQL keystone/NSXv neutron backend VIO:
+   panda tempest config '192.168.111.160' 'admin' 'vmware' 'nsxv' --ext-cidr '192.168.112.0/24' --ext-start-ip '192.168.112.170' --ext-end-ip '192.168.112.200' --ext-gateway '192.168.112.1' --compute-nodes 2 --nsx-manager '192.168.111.15' --nsx-user 'admin' --nsx-password 'default'
+  Configure tempest against a SQL keystone/DVS neutron backend VIO:
+   panda tempest config '192.168.111.153' 'admin' 'vmware' 'dvs' --compute-nodes 2
   Configure tempest against a LDAP keystone backend VIO:
-   panda tempest config '192.168.111.160' 'vioadmin@vio.com' 'VMware1!' 'nsxv' --credentials-provider 'legacy' --user1 'xiaoy@vio.com' --user1-password 'VMware1!' --user2 'sren@vio.com' --user2-password 'VMware1!' --ext-cidr '192.168.112.0/24' --ext-start-ip '192.168.112.170' --ext-end-ip '192.168.112.200' --ext-gateway '192.168.112.1'
-  Configure tempest against a DVS neutron VIO:
-   panda tempest config '192.168.111.153' 'admin' 'vmware' 'dvs' --credentials-provider 'legacy' --user1 'default-tempest' --user1-password 'vmware' --user2 'alt-user-tempest' --user2-password  'vmware'
+   panda tempest config '192.168.111.160' 'vioadmin@vio.com' 'VMware1!' 'nsxv' --credentials-provider 'pre-provisioned' --user1 'xiaoy@vio.com' --user1-password 'VMware1!' --user2 'sren@vio.com' --user2-password 'VMware1!' --ext-cidr '192.168.112.0/24' --ext-start-ip '192.168.112.170' --ext-end-ip '192.168.112.200' --ext-gateway '192.168.112.1' --nsx-manager '192.168.111.15' --nsx-user 'admin' --nsx-password 'default'
 
  Step 3
   Run tempest tests:
-   panda tempest run 'keystone,glance,nova,cinder,neutron,heat,scenario'
+   panda tempest run 'keystone,glance,nova,cinder,neutron,heat,scenario,nsxv,nsxt'
 
 Run VMware tempest:
  Step 1

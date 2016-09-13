@@ -69,10 +69,6 @@ tempest.api.compute.servers.test_servers_negative.ServersNegativeTestJSON.test_u
 tempest.api.compute.servers.test_servers_negative.ServersNegativeTestJSON.test_unpause_server_invalid_state[gate,negative]
 tempest.scenario.test_server_basic_ops.TestServerBasicOps.test_server_basicops[compute,network]
 
-# unshelve failed
-tempest.api.compute.servers.test_server_actions.ServerActionsTestJSON.test_shelve_unshelve_server[gate]
-tempest.api.compute.servers.test_servers_negative.ServersNegativeTestJSON.test_shelve_shelved_server[gate,negative]
-
 # Other Cinder Tests Causing Failures
 tempest.scenario.test_encrypted_cinder_volumes.TestEncryptedCinderVolumes.test_encrypted_cinder_volumes_cryptsetup[compute,image,volume]
 tempest.scenario.test_encrypted_cinder_volumes.TestEncryptedCinderVolumes.test_encrypted_cinder_volumes_luks[compute,image,volume]
@@ -91,29 +87,6 @@ tempest.scenario.test_volume_boot_pattern.TestVolumeBootPattern.test_volume_boot
 tempest.scenario.test_volume_boot_pattern.TestVolumeBootPatternV2.test_volume_boot_pattern[compute,image,volume]
 tempest.scenario.test_security_groups_basic_ops.TestSecurityGroupsBasicOps.test_in_tenant_traffic[compute,gate,network,smoke]
 tempest.scenario.test_network_advanced_server_ops.TestNetworkAdvancedServerOps.test_server_connectivity_reboot[compute,network]
-
-# no_proxy issue due to https://github.com/boto/boto/pull/1905
-tempest.thirdparty.boto.test_s3_objects.S3BucketsTest.test_create_get_delete_object
-
-# needed for internal tempest
-tempest.thirdparty.boto.test_s3_objects.S3BucketsTest.test_create_get_delete_object[gate,smoke]
-
-# Under investigation
-tempest.thirdparty.boto.test_s3_buckets.S3BucketsTest.test_create_and_get_delete_bucket
-
-#boto (need to investigate)
-tempest.thirdparty.boto.test_ec2_instance_run.InstanceRunTest.test_compute_with_volumes
-tempest.thirdparty.boto.test_ec2_instance_run.InstanceRunTest.test_run_idempotent_instances
-tempest.thirdparty.boto.test_ec2_instance_run.InstanceRunTest.test_run_stop_terminate_instance
-tempest.thirdparty.boto.test_ec2_instance_run.InstanceRunTest.test_run_stop_terminate_instance_with_tags
-tempest.thirdparty.boto.test_ec2_instance_run.InstanceRunTest.test_run_terminate_instance
-tempest.thirdparty.boto.test_ec2_keys.EC2KeysTest.test_create_ec2_keypair
-tempest.thirdparty.boto.test_ec2_keys.EC2KeysTest.test_delete_ec2_keypair
-tempest.thirdparty.boto.test_ec2_keys.EC2KeysTest.test_duplicate_ec2_keypair
-tempest.thirdparty.boto.test_ec2_keys.EC2KeysTest.test_get_ec2_keypair
-tempest.thirdparty.boto.test_ec2_security_groups.EC2SecurityGroupTest.test_create_authorize_security_group
-tempest.thirdparty.boto.test_ec2_volumes.EC2VolumesTest.test_create_get_delete
-tempest.thirdparty.boto.test_ec2_volumes.EC2VolumesTest.test_create_volume_from_snapshot
 
 # Cinder multiple backend is not supported
 tempest.api.volume.admin.test_multi_backend.VolumeMultiBackendV1Test.test_backend_name_reporting_with_prefix[id-f38e647f-ab42-4a31-a2e7-ca86a6485215,smoke]
@@ -160,8 +133,8 @@ tempest.api.identity.admin.v2.test_tokens.TokensTestJSON.test_create_get_delete_
 tempest.api.identity.admin.v3.test_tokens.TokensV3TestJSON.test_rescope_token[id-565fa210-1da1-4563-999b-f7b5b67cf112]
 tempest.api.identity.admin.v3.test_tokens.TokensV3TestJSON.test_tokens[id-0f9f5a5f-d5cd-4a86-8a5b-c5ded151f212]
 
-# vio don't support nova floatingip
-tempest.scenario.test_shelve_instance.TestShelveInstance.test_shelve_instance[compute,id-1164e700-0af0-4a4c-8792-35909a88743c,image,network]
+# Pending on bug #1695834
+tempest.scenario.test_shelve_instance.TestShelveInstance.test_shelve_volume_backed_instance[compute,id-c1b6318c-b9da-490b-9c67-9339b627271f,image,network]
 
 # vio don't support setting port admin_state_up to false
 tempest.scenario.test_network_basic_ops.TestNetworkBasicOps.test_update_instance_port_admin_state[compute,id-f5dfcc22-45fd-409f-954c-5bd500d7890b,network]
@@ -169,36 +142,51 @@ tempest.scenario.test_network_basic_ops.TestNetworkBasicOps.test_update_instance
 # Pending on bug #1498719
 tempest.scenario.test_network_basic_ops.TestNetworkBasicOps.test_connectivity_between_vms_on_different_networks[compute,id-1546850e-fbaa-42f5-8b5f-03d8a6a95f15,network]
 
-# nsxv plugin don't support host route configuration
-tempest.api.network.test_networks.NetworksTestJSON.test_create_delete_subnet_all_attributes[id-a4d9ec4c-0306-4111-a75c-db01a709030b]
-tempest.api.network.test_networks.NetworksTestJSON.test_create_delete_subnet_with_host_routes_and_dns_nameservers[id-d830de0a-be47-468f-8f02-1fd996118289]
-tempest.api.network.test_networks.NetworksTestJSON.test_update_subnet_gw_dns_host_routes_dhcp[id-3d3852eb-3009-49ec-97ac-5ce83b73010a]
-
 # nsxv plugin don't support multiple ip per port
 tempest.api.network.test_floating_ips.FloatingIPTestJSON.test_create_update_floatingip_with_port_multiple_ip_address[id-45c4c683-ea97-41ef-9c51-5e9802f2f3d7]
 tempest.api.network.test_ports.PortsTestJSON.test_create_update_port_with_second_ip[id-63aeadd4-3b49-427f-a3b1-19ca81f06270]
 
 # skipped scenario cases
 tempest.scenario.test_baremetal_basic_ops.BaremetalBasicOps.test_baremetal_server_ops[baremetal,compute,id-549173a5-38ec-42bb-b0e2-c8b9f4a08943,image,network]
-tempest.scenario.test_large_ops.TestLargeOpsScenario.test_large_ops_scenario_1[compute,id-14ba0e78-2ed9-4d17-9659-a48f4756ecb3,image]
-tempest.scenario.test_large_ops.TestLargeOpsScenario.test_large_ops_scenario_2[compute,id-b9b79b88-32aa-42db-8f8f-dcc8f4b4ccfe,image]
-tempest.scenario.test_large_ops.TestLargeOpsScenario.test_large_ops_scenario_3[compute,id-3aab7e82-2de3-419a-9da1-9f3a070668fb,image]
 tempest.scenario.test_network_basic_ops.TestNetworkBasicOps.test_preserve_preexisting_port[compute,id-759462e1-8535-46b0-ab3a-33aa45c55aaa,network]
 tempest.scenario.test_network_v6.TestGettingAddress.test_dhcp6_stateless_from_os[compute,id-d7e1f858-187c-45a6-89c9-bdafde619a9f,network]
 tempest.scenario.test_network_v6.TestGettingAddress.test_multi_prefix_dhcpv6_stateless[compute,id-7ab23f41-833b-4a16-a7c9-5b42fe6d4123,network]
 tempest.scenario.test_network_v6.TestGettingAddress.test_multi_prefix_slaac[compute,id-dec222b1-180c-4098-b8c5-cc1b8342d611,network]
 tempest.scenario.test_network_v6.TestGettingAddress.test_slaac_from_os[compute,id-2c92df61-29f0-4eaa-bee3-7c65bef62a43,network]
 tempest.scenario.test_stamp_pattern.TestStampPattern.test_stamp_pattern[compute,id-10fd234a-515c-41e5-b092-8323060598c5,image,network,volume]
-tempest.scenario.test_swift_basic_ops.TestSwiftBasicOps.test_swift_acl_anonymous_download[id-916c7111-cb1f-44b2-816d-8f760e4ea910,object_storage]
-tempest.scenario.test_swift_basic_ops.TestSwiftBasicOps.test_swift_basic_ops[id-b920faf1-7b8a-4657-b9fe-9c4512bfb381,object_storage]
-tempest.scenario.test_swift_telemetry_middleware.TestSwiftTelemetry.test_swift_middleware_notifies[id-6d6b88e5-3e38-41bc-b34a-79f713a6cb84,object_storage,telemetry]
 
-# dvs customized tests
-tempest.api.network.admin.test_networks_admin_actions.AdminNetworksTestJSON.test_create_update_delete_network_subnet[id-15d3d53c-3328-401f-b8f5-3a29aee2ea3a,smoke]
-tempest.api.network.admin.test_networks_admin_actions.AdminNetworksTestJSON.test_list_networks[id-b86d50ef-39a7-4136-8c89-e5e534fe92aa,smoke]
-tempest.api.network.admin.test_networks_admin_actions.AdminNetworksTestJSON.test_show_network[id-838aee5f-92f2-47b9-86c6-629a04aa6269,smoke]
-tempest.api.network.admin.test_networks_admin_actions.AdminNetworksTestJSON.test_show_subnet[id-ee3f8b79-da3f-4394-9bea-012488202257,smoke]
-tempest.api.network.admin.test_ports_admin_actions.AdminPortsTestJSON.test_create_update_delete_port[id-c3f751d4-e358-44b9-bfd2-3d563c4a2d04,smoke]
-tempest.api.network.admin.test_ports_admin_actions.AdminPortsTestJSON.test_list_ports[id-c5f74042-c512-4569-b9b9-bc2bf46e77e1,smoke]
-tempest.api.network.admin.test_ports_admin_actions.AdminPortsTestJSON.test_list_ports_fields[id-2775f96c-a09b-49e1-a5a4-adb83a3e91c7,smoke]
-tempest.api.network.admin.test_ports_admin_actions.AdminPortsTestJSON.test_show_port[id-d3dcd23b-7d5a-4720-8d88-473fb154d609,smoke]
+# neutron nsxv driver limitation
+# cannot configure static routes on a shared router
+tempest.api.network.test_routers.RoutersTest.test_update_extra_route[id-c86ac3a8-50bd-4b00-a6b8-62af84a0765c]
+tempest.api.network.test_routers.RoutersTest.test_update_delete_extra_route[id-c86ac3a8-50bd-4b00-a6b8-62af84a0765c]
+
+# Pending on bug #1695021
+tempest.api.volume.v2.test_volumes_list.VolumesV2ListTestJSON.test_volume_list_details_pagination[id-e9138a2c-f67b-4796-8efa-635c196d01de]
+tempest.api.volume.v2.test_volumes_list.VolumesV2ListTestJSON.test_volume_list_pagination[id-af55e775-8e4b-4feb-8719-215c43b0238c]
+
+# Snapshot on server booted from volume is not supported
+tempest.scenario.test_volume_boot_pattern.TestVolumeBootPattern.test_create_ebs_image_and_check_boot[compute,id-36c34c67-7b54-4b59-b188-02a2f458a63b,image,volume]
+tempest.scenario.test_volume_boot_pattern.TestVolumeBootPatternV2.test_create_ebs_image_and_check_boot[compute,id-36c34c67-7b54-4b59-b188-02a2f458a63b,image,volume]
+
+# TODO(yangyu): will support it after we enable the master branch for tempest
+vmware_nsx_tempest.tests.nsxv.scenario.test_deployments.TestMultiTenantsNetwork.test_multi_tenants_network[compute,id-19d19cd0-9686-49c9-acea-a9db28f7458c,network]
+vmware_nsx_tempest.tests.nsxv.scenario.test_deployments.TestProviderRouterTenantNetwork.test_provider_router_tenant_network[compute,id-a31712de-33ad-4dc2-9755-1a0631a4f66a,network]
+vmware_nsx_tempest.tests.nsxv.scenario.test_deployments.TestTenantConnectivity.test_tenant_connectivity[compute,id-3c6cd4fe-de25-47ef-b638-a6bbb312da09,network]
+vmware_nsx_tempest.tests.nsxv.scenario.test_network_basic_ops.TestNetworkBasicOps.test_subnet_details[compute,id-d8bb918e-e2df-48b2-97cd-b73c95450980,network]
+
+# TODO(yangyu): enable them after switching to NSXv 6.2.3 or higher
+tempest.api.network.test_networks.NetworksTest.test_create_delete_subnet_all_attributes[id-a4d9ec4c-0306-4111-a75c-db01a709030b]
+tempest.api.network.test_networks.NetworksTest.test_create_delete_subnet_with_host_routes_and_dns_nameservers[id-d830de0a-be47-468f-8f02-1fd996118289]
+tempest.api.network.test_networks.NetworksTest.test_update_subnet_gw_dns_host_routes_dhcp[id-3d3852eb-3009-49ec-97ac-5ce83b73010a]
+
+# Pending on bug #1638872
+tempest.scenario.test_network_advanced_server_ops.TestNetworkAdvancedServerOps.test_server_connectivity_resize[compute,id-719eb59d-2f42-4b66-b8b1-bb1254473967,network]
+tempest.scenario.test_network_advanced_server_ops.TestNetworkAdvancedServerOps.test_server_connectivity_stop_start[compute,id-61f1aa9a-1573-410e-9054-afa557cab021,network,stress]
+
+# we cannot skip these tests because of bug in tempest
+tempest.api.compute.admin.test_servers_on_multinodes.ServersOnMultiNodesTest.test_create_servers_on_different_hosts[id-cc7ca884-6e3e-42a3-a92f-c522fcf25e8e]
+tempest.api.compute.admin.test_servers_on_multinodes.ServersOnMultiNodesTest.test_create_servers_on_different_hosts_with_list_of_servers[id-7869cc84-d661-4e14-9f00-c18cdc89cf57]
+tempest.api.compute.admin.test_servers_on_multinodes.ServersOnMultiNodesTest.test_create_servers_on_same_host[id-26a9d5df-6890-45f2-abc4-a659290cb130]
+
+# Pending on bug #1709408
+tempest.scenario.test_server_basic_ops.TestServerBasicOps.test_server_basic_ops[compute,id-7fff3fb3-91d8-4fd0-bd7d-0204f1f180ba,network,smoke]

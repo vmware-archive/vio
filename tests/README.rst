@@ -8,13 +8,13 @@ System dependencies installation
 =================================
 Set up an Ubuntu 14.04(or above) VM, make sure it has internet connectivity.
 
-* Install required libs: python-dev libffi-dev libssl-dev git swig.
+* Install required libs: python-dev libffi-dev libssl-dev git swig libxml2-dev libxslt-dev.
 * Install pip: See https://pip.pypa.io/en/stable/installing/
 * Install virtualenv with pip.
 
 .. code:: shell
 
-  apt-get -y install python-dev libffi-dev libssl-dev git swig
+  apt-get -y install python-dev libffi-dev libssl-dev git swig libxml2-dev libxslt-dev
   wget https://bootstrap.pypa.io/get-pip.py
   python get-pip.py
   pip install virtualenv
@@ -54,18 +54,17 @@ keystone backend.
 .. code:: shell
 
   # Configure tempest against a NSXv neutron/SQL keystone backend VIO
-  panda tempest config '192.168.111.160' 'admin' 'vmware' 'nsxv' --ext-cidr '192.168.112.0/24' --ext-start-ip '192.168.112.170' --ext-end-ip '192.168.112.200' --ext-gateway '192.168.112.1'
+  panda tempest config '192.168.111.160' 'admin' 'vmware' 'nsxv' --ext-cidr '192.168.112.0/24' --ext-start-ip '192.168.112.170' --ext-end-ip '192.168.112.200' --ext-gateway '192.168.112.1' --nsx-manager '192.168.111.15' --nsx-user 'admin' --nsx-password 'default'
   # Configure tempest against a NSXv neutron/LDAP keystone backend VIO.
-  panda tempest config '192.168.111.160' 'vioadmin@vio.com' 'VMware1!' 'nsxv' --credentials-provider 'legacy' --user1 'xiaoy@vio.com' --user1-password 'VMware1!' --user2 'sren@vio.com' --user2-password 'VMware1!' --ext-cidr '192.168.112.0/24' --ext-start-ip '192.168.112.170' --ext-end-ip '192.168.112.200' --ext-gateway '192.168.112.1'
-  # Configure tempest against a DVS neutron VIO.
-  panda tempest config '192.168.111.153' 'admin' 'vmware' 'dvs' --credentials-provider 'legacy' --user1 'default-tempest' --user1-password 'vmware' --user2 'alt-user-tempest' --user2-password  'vmware'
+  panda tempest config '192.168.111.160' 'vioadmin@vio.com' 'VMware1!' 'nsxv' --credentials-provider 'pre-provisioned' --user1 'xiaoy@vio.com' --user1-password 'VMware1!' --user2 'sren@vio.com' --user2-password 'VMware1!' --ext-cidr '192.168.112.0/24' --ext-start-ip '192.168.112.170' --ext-end-ip '192.168.112.200' --ext-gateway '192.168.112.1' --nsx-manager '192.168.111.15' --nsx-user 'admin' --nsx-password 'default'
+  # Configure tempest against a DVS neutron/SQL keystone backend VIO.
+  panda tempest config '192.168.111.153' 'admin' 'vmware' 'dvs'
 
 
 Note:
 
 * Make sure you run them in the directory ``tests/``
 * For LDAP backend, you should find available LDAP users like ``xiaoy@vio.com`` and ``sren@vio.com`` as the parameters. Replace ``vioadmin@vio.com`` to the admin user of your VIO setup.
-* For SQL backend, users will be created if they are not existed. So you don't need to change ``--user1`` and ``--user2``.
 * '192.168.112.0/24', '192.168.112.170' etc. are the Edge external network configurations in your VIO setup. Tempest tests will ssh through floating IP and verify instances.
 * '192.168.111.160' 'admin' 'vmware' are the Private VIP and authentication of your VIO setup, change them to yours.
 

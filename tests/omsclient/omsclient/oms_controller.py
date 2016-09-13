@@ -1,7 +1,22 @@
 import json
+import datetime
 import logging
+import re
+import time
+
 
 from restclient import RestClient
+
+
+LOG = logging.getLogger(__name__)
+
+
+class TimeoutError(Exception):
+    """Time out exceptions"""
+
+
+class OMSError(Exception):
+    """OMS error"""
 
 
 class OmsController(object):
@@ -47,14 +62,16 @@ class OmsController(object):
         return cluster
 
     def delete_deployment(self, deployment_name):
-        return self.rest_client.do_delete('cluster', deployment_name)
+        resp = self.rest_client.do_delete('cluster', deployment_name)
+        return self._validate_task('Delete cluster', resp)
 
-    def create_deployment_by_spec(self, deployment_json):
+    def create_deployment_by_spec(self, deployment_json, timeout=5400):
         resp = self._create_deployment(deployment_json)
-        return resp
+        return self._validate_task('Create cluster', resp, timeout=timeout)
 
     def _create_deployment(self, spec):
         post_body = json.dumps(spec)
+        LOG.debug("Create OpenStack Cluster with spec: %s" % post_body)
         resp = self.rest_client.do_post('clusters', post_body)
         return resp
 
@@ -83,12 +100,12 @@ class OmsController(object):
         resp = self.rest_client.do_put("clusters/VIO/glancedatastore", spec)
         return resp
 
-    def retry_cluster(self, cluster, spec):
-        api_url_template = "clusters/%s?action=retry"
+    def edit_cluster(self, cluster, spec, timeout=5400):
+        api_url_template = "clusters/%s/edit"
         url = api_url_template % cluster
         put_body = json.dumps(spec)
         resp = self.rest_client.do_put(url, put_body)
-        return resp
+        return self._validate_task('Edit cluster', resp, timeout=timeout)
 
     def retrieve_cluster_profile(self, cluster):
         api_url_template = "clusters/%s/profile"
@@ -107,10 +124,12 @@ class OmsController(object):
         return resp
 
     def add_nova_node(self, cluster, ng, spec):
+        LOG.debug('Add nova node spec: %s', spec)
         api_url_template = "cluster/{}/nodegroup/{}/scaleout"
         url = api_url_template.format(cluster, ng)
+        LOG.debug('Add nova node url: %s', url)
         resp = self.rest_client.do_put(url, spec)
-        return resp
+        return self._validate_task('Add nova node', resp)
 
     def add_node_group(self, cluster, spec):
         api_url_template = "clusters/{}/nodegroups"
@@ -125,7 +144,13 @@ class OmsController(object):
         return resp
 
     def increase_ips(self, nw, spec):
-        api_url_template = "network/{}"
+        api_url_template = "network/{}?action=add"
+        url = api_url_template.format(nw)
+        resp = self.rest_client.do_put(url, spec)
+        return resp
+
+    def remove_ips(self, nw, spec):
+        api_url_template = "network/{}?action=remove"
         url = api_url_template.format(nw)
         resp = self.rest_client.do_put(url, spec)
         return resp
@@ -271,12 +296,19 @@ class OmsController(object):
         resp = self.rest_client.do_put(url, "")
         return resp
 
+    def retry_cluster(self, cluster, timeout=5400):
+        api_url_template = "cluster/%s?action=retry"
+        url = api_url_template % cluster
+        resp = self.rest_client.do_put(url, "")
+        return self._validate_task('Retry cluster', resp, timeout=timeout)
+
     def upgrade_provision(self, cluster, spec):
         post_body = json.dumps(spec)
+        LOG.debug('Green cluster spec: %s', spec)
         api_url_template = '/clusters/%s/upgrade/provision'
         url = api_url_template % cluster
         resp = self.rest_client.do_post(url, post_body)
-        return resp
+        return self._validate_task('Create green cluster', resp)
 
     def upgrade_retry(self, cluster, spec):
         put_body = json.dumps(spec)
@@ -289,13 +321,13 @@ class OmsController(object):
         api_url_template = '/clusters/%s/upgrade/configure'
         url = api_url_template % cluster
         resp = self.rest_client.do_put(url, "")
-        return resp
+        return self._validate_task('Migrate blue cluster data', resp)
 
     def upgrade_switch_to_green(self, cluster):
         api_url_template = '/clusters/%s/upgrade/switch'
         url = api_url_template % cluster
         resp = self.rest_client.do_put(url, "")
-        return resp
+        return self._validate_task('Switch to green cluster', resp)
 
     def switch_keystone_backend(self, cluster, spec):
         put_body = json.dumps(spec)
@@ -303,3 +335,55 @@ class OmsController(object):
         url = api_url_template % cluster
         resp = self.rest_client.do_put(url, put_body)
         return resp
+
+    def change_deployment_type(self, newtype):
+        api_url_template = '/deploymenttype?deployment_type=%s'
+        url = api_url_template % newtype
+        resp = self.rest_client.do_post(url, "")
+        return resp
+
+    def unconfig_ceilometer(self, cluster):
+        api_url_template = '/clusters/%s/unconfigceilometer'
+        url = api_url_template % cluster
+        resp = self.rest_client.do_put(url, "")
+        return self._validate_task('Unconfig ceilometer', resp)
+
+    @staticmethod
+    def _get_task_id(url):
+        LOG.debug('Grep task id from url: %s', url)
+        pattern = re.compile(r'/task/(\d+)')
+        result = pattern.search(url)
+        if result:
+            task_id = result.group(1)
+            LOG.debug('Task id: %s' % task_id)
+            return task_id
+
+    def wait_for_task_completed(self, task_id, interval=60, timeout=3600):
+        begin_poll = datetime.datetime.now()
+        status_list = ['COMPLETED', 'STOPPING', 'STOPPED', 'FAILED']
+        while (datetime.datetime.now() - begin_poll).seconds < timeout:
+            task = self.get_task(task_id)
+            if task['status'] in status_list:
+                LOG.debug('Task %s status: %s', task_id, task['status'])
+                return task['status'], task['errorMessage']
+            time.sleep(interval)
+        raise TimeoutError('Waited %s seconds for task %s' % (timeout,
+                                                              task_id))
+
+    def _validate_task(self, task_name, resp, interval=60, timeout=3600):
+        start = time.time()
+        LOG.debug('Response header: %s', resp.headers)
+        LOG.debug('Response body: %s', resp.text)
+        if resp.status_code != 202:
+            raise OMSError('Task %s failed: %s' % (task_name, resp.text))
+        url = resp.headers['Location']
+        LOG.debug('Retrieve redirect url %s of task %s', url, task_name)
+        task_id = OmsController._get_task_id(url)
+        if not task_id:
+            raise OMSError('Task id of %s not found.' % task_name)
+        status, msg = self.wait_for_task_completed(task_id, interval, timeout)
+        if status != 'COMPLETED':
+            raise OMSError('Task %s %s: %s' % (task_name, status, msg))
+        end = time.time()
+        LOG.debug('Task %s took %s seconds', task_name, (end - start))
+        return task_id

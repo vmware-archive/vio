@@ -3,10 +3,11 @@ ssh-util
 shell-util
 oms-client
 pyVmomiwrapper>=0.0.2
-python-keystoneclient
+python-keystoneclient>=2.0.0
 python-neutronclient
 python-novaclient
 python-subunit
 junitxml
 testtools
 m2crypto
+os-testr

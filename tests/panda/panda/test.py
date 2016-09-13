@@ -5,8 +5,11 @@ import json
 import cluster_utils
 from panda.exceptions import NotSupportedError
 import tempest_utils
-from tempest_utils import NSXV_BACKEND
+from cluster_utils import NSXT_BACKEND
+from cluster_utils import NSXV_BACKEND
+from cluster_utils import LDAP_BACKEND
 from tempest_utils import LEGACY_PROVIDER
+from tempest_utils import PRE_PROVISIONED_PROVIDER
 from shellutil import shell
 from omsclient.oms_controller import OmsController
 
@@ -91,10 +94,10 @@ class OMSAPI(Test):
 
     def _run(self, neutron_backend):
         report = '%s-nosetests.xml' % neutron_backend
-        cmd = 'cd %s; python run_test.py -t %s --report %s' % \
-              (self.project_path,
-               neutron_backend,
-               os.path.join(self.log_dir, report))
+        cmd = 'cd %s; python run_test.py -t %s --deployment_type %s ' \
+              '--report %s' % (self.project_path, neutron_backend,
+                               self.oms_spec['api_test_deployment_type'],
+                               os.path.join(self.log_dir, report))
         LOG.info('[local] run: %s' % cmd)
         os.system(cmd)
 
@@ -121,18 +124,32 @@ class Tempest(Test):
             admin_user = controller['attributes']['admin_user']
             admin_pwd = controller['attributes']['admin_password']
             neutron_backend = controller['attributes']['neutron_backend']
+            keystone_backend = controller['attributes']['keystone_backend']
             admin_tenant = controller['attributes']['admin_tenant_name']
             ext_net_cidr = None
             ext_net_start_ip = None
             ext_net_end_ip = None
             ext_net_gateway = None
+            nsx_manager = None
+            nsx_user = None
+            nsx_pwd = None
+            if LDAP_BACKEND == keystone_backend:
+                admin_user = self.oms_spec['openstack_admin']
+                admin_pwd = self.oms_spec['openstack_admin_pwd']
             if neutron_backend == NSXV_BACKEND:
+                nsx_manager = controller['attributes']['nsxv_manager']
+                nsx_user = controller['attributes']['nsxv_username']
+                nsx_pwd = controller['attributes']['nsxv_password']
+            elif neutron_backend == NSXT_BACKEND:
+                # TODO: get nsxt configure from spec
+                pass
+            if neutron_backend in [NSXV_BACKEND, NSXT_BACKEND]:
                 ext_net_cidr = self.oms_spec['ext_net_cidr']
                 ext_net_start_ip = self.oms_spec['ext_net_start_ip']
                 ext_net_end_ip = self.oms_spec['ext_net_end_ip']
                 ext_net_gateway = self.oms_spec['ext_net_gateway']
             creds_provider = self.oms_spec['openstack_creds_provider'].strip()
-            if creds_provider == LEGACY_PROVIDER:
+            if creds_provider in [LEGACY_PROVIDER, PRE_PROVISIONED_PROVIDER]:
                 user1 = self.oms_spec['openstack_user1']
                 user1_pwd = self.oms_spec['openstack_user1_pwd']
                 user2 = self.oms_spec['openstack_user2']
@@ -142,6 +159,10 @@ class Tempest(Test):
                 user1_pwd = None
                 user2 = None
                 user2_pwd = None
+            if 'compute_clusters' in self.oms_spec:
+                min_compute_nodes = len(self.oms_spec['compute_clusters'])
+            else:
+                min_compute_nodes = 1
             tempest_utils.install_tempest()
             tempest_log_file = '%s/tempest.log' % self.log_dir
             oms_ctl = OmsController(self.oms_spec['host_ip'],
@@ -165,7 +186,13 @@ class Tempest(Test):
                                          ext_net_end_ip=ext_net_end_ip,
                                          ext_net_gateway=ext_net_gateway,
                                          tempest_log_file=tempest_log_file,
-                                         admin_tenant=admin_tenant)
+                                         admin_tenant=admin_tenant,
+                                         min_compute_nodes=min_compute_nodes,
+                                         nsx_manager=nsx_manager,
+                                         nsx_user=nsx_user,
+                                         nsx_pwd=nsx_pwd)
+            shell.local('cp %s/etc/tempest.conf %s/' % (
+                tempest_utils.TEMPEST_DIR, self.log_dir))
             tempest_utils.generate_run_list(neutron_backend)
         else:
             LOG.info('Tempest already exists. Skip setting up it.')
@@ -219,4 +246,6 @@ CLS_MAP = {'oms-api': OMSAPI,
            'heat': Tempest,
            'keystone': Tempest,
            'glance': Tempest,
-           'scenario': Tempest}
+           'scenario': Tempest,
+           'nsxv': Tempest,
+           'nsxt': Tempest}

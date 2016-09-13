@@ -157,6 +157,9 @@ class RemoteClient(object):
 
         self._set_client()
 
+    def check_connection(self):
+        self._set_client()
+
     def _set_client(self):
         self.client = paramiko.SSHClient()
         self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())

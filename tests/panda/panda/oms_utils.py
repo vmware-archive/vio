@@ -1,9 +1,9 @@
 import logging
 import os
 import sys
-import time
 
-from shellutil import shell
+from netaddr import iter_iprange
+
 from omsclient.oms_controller import OmsController
 from sshutil.remote import RemoteClient
 from pyVmomiwrapper import vmwareapi
@@ -69,26 +69,20 @@ def deploy_vapp(vc_host, vc_user, vc_password, dc, cluster, ds, network,
            '--vService:"installation"='
            '"com.vmware.vim.vsm:extension_vservice" '
            '--acceptAllEulas --noSSLVerify --powerOn '
-           '--datastore=%s '
+           '--datastore="%s" '
            '-dm=thin '
            '--net:"VIO Management Server Network"="%s" '
            '--prop:vami.ip0.management-server=%s '
            '--prop:vami.netmask0.management-server=%s '
            '--prop:vami.gateway.management-server=%s '
            '%s '
-           '--prop:viouser_passwd=%s '
-           '%s %s vi://%s:%s@%s/%s/host/%s'
+           '--prop:viouser_passwd="%s" '
+           '%s "%s" "vi://%s:%s@%s/%s/host/%s"'
            '' % (ovf_tool_path, log_path, ds, network, ip, netmask,
                  gateway, dns_config, viouser_pwd, ntp_config, ova_path,
                  vc_user, vc_password, vc_host, dc, cluster))
     LOG.info('Start to deploy management server.')
-    # LOG.info(cmd)
-    # exit_code = os.system(cmd)
-    exit_code = shell.local(cmd)[0]
-    if exit_code:
-        LOG.warning('Failed to deploy vApp. Retry deploying after 3 minutes.')
-        time.sleep(60 * 3)
-        shell.local(cmd, raise_error=True)
+    task_utils.safe_run(cmd, 'deploy VIO vApp')
     wait_for_mgmt_service(ip, vc_user, vc_password)
     LOG.info('Successfully deployed management server.')
 
@@ -142,34 +136,56 @@ def get_vapp_version(vc_host, vc_user, vc_password, name_regex):
         return vapp.version if vapp else None
 
 
-def get_patch_info(output, patch_version):
-    lines = output.split('\n')[2:]
-    for line in lines:
-        if line.strip():
-            items = line.split()
-            if patch_version == items[1]:
-                LOG.debug('Find patch info: %s' % line)
-                return {'Name': items[0],
-                        'Version': items[1],
-                        'Type': items[2],
-                        'Installed': items[-1]}
-    raise NotSupportedError('Patch %s not added' % patch_version)
+def get_patch_info(ssh_client, patch_version):
+    output = ssh_client.run('viopatch list', sudo=True, raise_error=True)
+    lines = output.split('\n')
+    if len(lines) > 2:
+        lines = lines[2:]
+        for line in lines:
+            if line.strip():
+                items = line.split()
+                if patch_version == items[1]:
+                    LOG.debug('Find patch info: %s' % line)
+                    return {'Name': items[0],
+                            'Version': items[1],
+                            'Type': items[2],
+                            'Installed': items[-1]}
 
 
 def apply_patch(ip, file_path, user='viouser', password='vmware'):
     file_name = os.path.basename(file_path)
     patch_name, patch_version = file_name.split('_')[0:2]
-    LOG.info('Start to Apply patch %s' % patch_version)
+    # Check if patch has already been installed
     ssh_client = RemoteClient(ip, user, password)
-    ssh_client.run('viopatch add -l %s' % file_path, sudo=True,
-                   raise_error=True, log_method='info')
+    patch_info = get_patch_info(ssh_client, patch_version)
+    if patch_info and patch_info['Installed'] == 'Yes':
+        LOG.info('Patch %s has already been installed, Skip installing it.',
+                 file_name)
+        return patch_info
+    if not patch_info:
+        LOG.info('Adding patch %s' % file_name)
+        remote_path = os.path.join('/tmp', file_name)
+        ssh_client.scp(file_name, '/tmp')
+        ssh_client.run('viopatch add -l %s' % remote_path, sudo=True,
+                       raise_error=True)
+        # Clean up patch file in case oms disk becomes full
+        ssh_client.run('rm -f %s' % remote_path)
+    patch_info = get_patch_info(ssh_client, patch_version)
+    if not patch_info:
+        raise NotSupportedError('Failed to add Patch %s' % file_name)
+    LOG.info('Start to install patch %s' % file_name)
     ssh_client.run('viopatch install --patch %s --version %s --as-infra' %
                    (patch_name, patch_version), sudo=True, raise_error=True,
-                   log_method='info', feed_input='Y')
-    output = ssh_client.run('viopatch list', sudo=True, raise_error=True,
-                            log_method='info')
-    patch_info = get_patch_info(output, patch_version)
+                   feed_input='Y')
+    patch_info = get_patch_info(ssh_client, patch_version)
     if patch_info['Installed'] != 'Yes':
-        LOG.error('Applying patch failed. %s' % patch_info)
-        raise NotCompletedError('Applying %s failed.' % file_path)
-    LOG.info('Successfully Applied patch %s' % patch_version)
+        LOG.error('Failed to install patch %s' % patch_info)
+        raise NotCompletedError('Failed to install patch %s.' % file_name)
+    LOG.info('Successfully Installed patch %s' % file_name)
+    return patch_info
+
+
+def get_ip_range(oms_spec, key):
+    if key in oms_spec:
+        start, end = oms_spec[key].split('-')
+        return iter_iprange(start, end)

@@ -1,22 +1,28 @@
 import logging
 import os
-import time
 import ConfigParser
-from urlparse import urlparse
+import time
 
-from keystoneclient.v2_0 import client as keystone_client
-from novaclient.v2 import client as nova_client
-from neutronclient.v2_0 import client as neutron_client
+from novaclient import client as nova_client
+from neutronclient.neutron import client as neutron_client
+import yaml
 
 from shellutil import shell
 from exceptions import NotSupportedError
-from subunit2html import generate_html_report
+from cluster_utils import NSXT_BACKEND
 from cluster_utils import NSXV_BACKEND
-from cluster_utils import DVS_BACKEND
+import task_utils
+from os_utils import get_entity
+from os_utils import get_keystone_client
+from os_utils import create_if_not_exist
+from os_utils import grant_role_on_project
+from os_utils import get_auth_url
+from os_utils import DEFAULT_DOMAIN_ID
 
 
 LOG = logging.getLogger(__name__)
 TEMPEST_DIR = 'tempest'
+VMWARE_NSX_DIR = 'vmware-nsx'
 VMWARE_TEMPEST_DIR = 'vmware_tempest'
 PACKAGE_MAP = {'nova': 'tempest.api.compute',
                'cinder': 'tempest.api.volume',
@@ -24,7 +30,9 @@ PACKAGE_MAP = {'nova': 'tempest.api.compute',
                'heat': 'tempest.api.orchestration',
                'keystone': 'tempest.api.identity',
                'glance': 'tempest.api.image',
-               'scenario': 'tempest.scenario'}
+               'scenario': 'tempest.scenario',
+               'nsxv': 'vmware_nsx_tempest.tests.nsxv.',
+               'nsxt': 'vmware_nsx_tempest.tests.nsxv3'}
 LEGACY_PROVIDER = 'legacy'
 DYNAMIC_PROVIDER = 'dynamic'
 PRE_PROVISIONED_PROVIDER = 'pre-provisioned'
@@ -34,23 +42,38 @@ IMAGE_NAME = 'ubuntu-14.04-server-amd64'
 FLAVOR1_NAME = 'm1-tempest'
 FLAVOR2_NAME = 'm2-tempest'
 DATA_NET_NAME = 'flat-tempest'
+DATA_NET_CIDR = '172.16.10.0/24'
 EXT_NET_NAME = 'public-tempest'
+ROUTER_NAME = 'router-tempest'
 TENANT_NAME = 'default-tenant-tempest'
 ALT_TENANT_NAME = 'alt-tenant-tempest'
+GIT_CLONE = 'GIT_SSL_NO_VERIFY=true git clone'
 
 
 def get_data_path():
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
 
 
-def install_tempest(repository='http://p3-review.eng.vmware.com/tempest',
-                    branch='master',
+def install_tempest(repository='github.com/openstack/tempest.git',
+                    branch='11.0.0',
+                    nsx_repo='github.com/openstack/vmware-nsx',
+                    nsx_branch='stable/mitaka',
+                    protocol='http',
                     conf_template=None):
     if os.path.exists(TEMPEST_DIR):
         LOG.info('Tempest already exists, skip cloning.')
     else:
         LOG.info('Clone tempest from repository.')
-        shell.local('git clone -b %s %s' % (branch, repository),
+        clone_url = '%s://%s' % (protocol, repository)
+        shell.local('%s -b %s %s' % (GIT_CLONE, branch, clone_url),
+                    raise_error=True)
+    # Get vmware_nsx plugin
+    if os.path.exists(VMWARE_NSX_DIR):
+        LOG.info('vmware-nsx already exists, skip cloning.')
+    else:
+        LOG.info('Clone vmware-nsx from repository.')
+        clone_url = '%s://%s' % (protocol, nsx_repo)
+        shell.local('%s -b %s %s' % (GIT_CLONE, nsx_branch, clone_url),
                     raise_error=True)
     with shell.cd(TEMPEST_DIR):
         shell.local("sed -i 's/-500/-1500/g' .testr.conf")
@@ -60,87 +83,106 @@ def install_tempest(repository='http://p3-review.eng.vmware.com/tempest',
         shell.local('cp %s etc/tempest.conf' % conf_template, raise_error=True)
         LOG.info('Install tempest dependencies.')
         cmd = 'python tools/install_venv.py --no-site-packages'
-        exit_code = shell.local(cmd)[0]
-        if exit_code:
-            LOG.warning('Failed to install dependencies. Retry it after 3 '
-                        'minutes.')
-            time.sleep(60 * 3)
-            shell.local(cmd, raise_error=True)
+        task_utils.safe_run(cmd, 'install tempest dependency')
+    LOG.info('Install vmware-nsx.')
+    cmd = './%s/tools/with_venv.sh pip install -e %s' % (TEMPEST_DIR,
+                                                         VMWARE_NSX_DIR)
+    task_utils.safe_run(cmd, 'install vmware-nsx')
     LOG.info('Tempest has been successfully installed.')
 
 
-def create_if_not_exist(func, kind, name, **kwargs):
-    entity = get_entity(func, kind, name)
-    if entity:
-        return entity
-    LOG.info("Create %s %s" % (kind, name))
-    return func.create(name, **kwargs)
+def add_account(user_name, password, tenant_name, roles=None, network=None,
+                router=None):
+    account = {
+        'username': user_name,
+        'password': password,
+        'tenant_name': tenant_name
+    }
+    if roles:
+        account['roles'] = roles
+    if network or router:
+        account['resources'] = []
+        if network:
+            account['resources'].append(network)
+        if router:
+            account['resources'].append(router)
+    return account
 
 
-def get_entity(func, kind, name):
-    for entity in func.list():
-        if entity.name.lower() == name.lower():
-            LOG.info("Found %s %s" % (kind, name))
-            return entity
-    return None
-
-
-def add_user_to_tenant(keystone, tenant, user, role):
-    users = tenant.list_users()
-    for existed_user in users:
-        if existed_user.name == user.name:
-            return
-    LOG.info('Grant role %s to user %s in tenant %s' %
-             (role.name, user.name, tenant.name))
-    keystone.roles.add_user_role(user, role, tenant=tenant)
-
-
-def config_identity(config_parser, auth_url, admin_user_name, admin_pwd,
+def config_identity(config_parser, private_vip, admin_user_name, admin_pwd,
                     admin_tenant_name, creds_provider, default_user_name=None,
                     default_pwd=None, alt_user_name=None, alt_pwd=None):
-    uri_v3 = 'http://%s/v3/' % urlparse(auth_url).netloc
-    keystone = keystone_client.Client(username=admin_user_name,
-                                      password=admin_pwd,
-                                      tenant_name=admin_tenant_name,
-                                      auth_url=auth_url,
-                                      insecure=True)
-    admin_tenant = get_entity(keystone.tenants, 'tenant', admin_tenant_name)
-    config_parser.set('identity', 'admin_tenant_id', admin_tenant.id)
-    config_parser.set('identity', 'admin_tenant_name', admin_tenant_name)
-    config_parser.set('identity', 'admin_password', admin_pwd)
-    config_parser.set('identity', 'admin_username', admin_user_name)
+    uri_v3 = get_auth_url(private_vip, 'v3')
+    uri_v2 = get_auth_url(private_vip)
+    keystone = get_keystone_client(private_vip=private_vip,
+                                   username=admin_user_name,
+                                   password=admin_pwd,
+                                   project_name=admin_tenant_name,
+                                   domain_name=DEFAULT_DOMAIN_ID)
+    admin_tenant = get_entity(keystone.projects, 'project', admin_tenant_name)
     config_parser.set('identity', 'uri_v3', uri_v3)
-    config_parser.set('identity', 'uri', auth_url)
-    # Create member role
-    create_if_not_exist(keystone.roles, 'role', ROLE_NAME)
+    config_parser.set('identity', 'uri', uri_v2)
+    config_parser.set('identity', 'auth_version', 'v2')
+    config_parser.set('auth', 'admin_tenant_name', admin_tenant_name)
+    config_parser.set('auth', 'admin_password', admin_pwd)
+    config_parser.set('auth', 'admin_username', admin_user_name)
+    # Create tempest test role
+    test_role = create_if_not_exist(keystone.roles, 'role', ROLE_NAME)
     config_parser.set('auth', 'tempest_roles', ROLE_NAME)
-    if LEGACY_PROVIDER == creds_provider:
+    # Both SQL backend and LDAP backend is Default
+    config_parser.set('auth', 'admin_domain_name', 'Default')
+    if creds_provider in [LEGACY_PROVIDER, PRE_PROVISIONED_PROVIDER]:
         # Create default tenant and user
-        default_tenant = create_if_not_exist(keystone.tenants, 'tenant',
-                                             TENANT_NAME)
+        default_domain = keystone.domains.get(DEFAULT_DOMAIN_ID)
+        default_tenant = create_if_not_exist(keystone.projects, 'project',
+                                             TENANT_NAME,
+                                             domain=default_domain)
         default_user = create_if_not_exist(keystone.users, 'user',
                                            default_user_name,
                                            password=default_pwd,
                                            tenant_id=default_tenant.id)
-        config_parser.set('identity', 'tenant_name', TENANT_NAME)
-        config_parser.set('identity', 'username', default_user_name)
-        config_parser.set('identity', 'password', default_pwd)
-        admin_role = get_entity(keystone.roles, 'role', 'admin')
-        add_user_to_tenant(keystone, default_tenant, default_user,
-                           admin_role)
+
+        grant_role_on_project(keystone, default_tenant, default_user,
+                              test_role)
         # Create alter tenant and user
-        alt_tenant = create_if_not_exist(keystone.tenants, 'tenant',
-                                         ALT_TENANT_NAME)
+        alt_tenant = create_if_not_exist(keystone.projects, 'project',
+                                         ALT_TENANT_NAME,
+                                         domain=default_domain)
         alt_user = create_if_not_exist(keystone.users, 'user', alt_user_name,
                                        password=alt_pwd,
                                        tenant_id=alt_tenant.id)
-        config_parser.set('identity', 'alt_tenant_name', ALT_TENANT_NAME)
-        config_parser.set('identity', 'alt_username', alt_user_name)
-        config_parser.set('identity', 'alt_password', alt_pwd)
-        add_user_to_tenant(keystone, alt_tenant, alt_user, admin_role)
-        config_parser.set('auth', 'allow_tenant_isolation', 'false')
+
+        grant_role_on_project(keystone, alt_tenant, alt_user, test_role)
+        if LEGACY_PROVIDER == creds_provider:
+            # Legacy provider can only be used before Newton release.
+            config_parser.set('identity', 'tenant_name', TENANT_NAME)
+            config_parser.set('identity', 'username', default_user_name)
+            config_parser.set('identity', 'password', default_pwd)
+            config_parser.set('identity', 'alt_tenant_name', ALT_TENANT_NAME)
+            config_parser.set('identity', 'alt_username', alt_user_name)
+            config_parser.set('identity', 'alt_password', alt_pwd)
+        elif PRE_PROVISIONED_PROVIDER == creds_provider:
+            accounts = list()
+            accounts.append(add_account(default_user_name, default_pwd,
+                                        TENANT_NAME, roles=[ROLE_NAME]))
+            accounts.append(add_account(alt_user_name, alt_pwd,
+                                        ALT_TENANT_NAME, roles=[ROLE_NAME]))
+            accounts.append(add_account(admin_user_name, admin_pwd,
+                                        admin_tenant_name, roles=['admin']))
+            test_accounts_file = os.path.join(os.getcwd(), TEMPEST_DIR,
+                                              'etc/accounts.yaml')
+            with open(test_accounts_file, 'w') as fh:
+                yaml.dump(accounts, fh, default_flow_style=False,
+                          default_style=False, indent=2, encoding='utf-8',
+                          allow_unicode=True)
+            config_parser.set('auth', 'test_accounts_file', test_accounts_file)
+        config_parser.set('auth', 'use_dynamic_credentials', 'false')
+        config_parser.set('auth', 'create_isolated_networks', 'false')
+    elif creds_provider == DYNAMIC_PROVIDER:
+        config_parser.set('auth', 'use_dynamic_credentials', 'true')
+        config_parser.set('auth', 'create_isolated_networks', 'false')
     else:
-        config_parser.set('auth', 'allow_tenant_isolation', 'true')
+        raise NotSupportedError('Not support %s' % creds_provider)
     # Create role for object storage
     create_if_not_exist(keystone.roles, 'role', STORAGE_ROLE_NAME)
     config_parser.set('object-storage', 'operator_role', STORAGE_ROLE_NAME)
@@ -150,13 +192,14 @@ def config_identity(config_parser, auth_url, admin_user_name, admin_pwd,
         LOG.info("Create role heat_stack_owner")
         heat_role = keystone.roles.create('heat_stack_owner')
         admin_user = get_entity(keystone.users, 'user', admin_user_name)
-        add_user_to_tenant(keystone, admin_tenant, admin_user, heat_role)
+        grant_role_on_project(keystone, admin_tenant, admin_user, heat_role)
 
 
-def config_compute(config_parser, auth_url, user_name, password,
-                   tenant_name, endpoint_type='internalURL'):
-    nova = nova_client.Client(username=user_name, api_key=password,
-                              project_id=tenant_name, auth_url=auth_url,
+def config_compute(config_parser, private_vip, user_name, password,
+                   tenant_name, endpoint_type='internalURL',
+                   min_compute_nodes=1):
+    auth_url = get_auth_url(private_vip)
+    nova = nova_client.Client('2', user_name, password, tenant_name, auth_url,
                               insecure=True, endpoint_type=endpoint_type)
     # Get the default image.
     images = nova.images.list()
@@ -176,9 +219,11 @@ def config_compute(config_parser, auth_url, user_name, password,
     m1 = create_if_not_exist(nova.flavors, 'flavor', FLAVOR1_NAME, ram=512,
                              vcpus=1, disk=10, is_public=True)
     config_parser.set('compute', 'flavor_ref', m1.id)
+    config_parser.set('orchestration', 'instance_type', FLAVOR1_NAME)
     m2 = create_if_not_exist(nova.flavors, 'flavor', FLAVOR2_NAME, ram=1024,
                              vcpus=2, disk=10, is_public=True)
     config_parser.set('compute', 'flavor_ref_alt', m2.id)
+    config_parser.set('compute', 'min_compute_nodes', min_compute_nodes)
     config_parser.set('compute-feature-enabled', 'pause', 'false')
 
 
@@ -189,22 +234,27 @@ def get_network(neutron, net_name):
             return net
 
 
-def config_network(config_parser, auth_url, user_name, password,
+def config_network(config_parser, private_vip, user_name, password,
                    neutron_backend, tenant_name, ext_net_cidr=None,
                    ext_net_start_ip=None, ext_net_end_ip=None,
                    ext_net_gateway=None, endpoint_type='internalURL'):
-    neutron = neutron_client.Client(username=user_name, password=password,
-                                    tenant_name=tenant_name, auth_url=auth_url,
-                                    insecure=True, endpoint_type=endpoint_type)
+    auth_url = get_auth_url(private_vip)
+    neutron = neutron_client.Client('2.0', username=user_name,
+                                    password=password,
+                                    tenant_name=tenant_name,
+                                    auth_url=auth_url,
+                                    insecure=True,
+                                    endpoint_type=endpoint_type)
     data_network = get_network(neutron, DATA_NET_NAME)
     if not data_network:
-        # Create data network
+        # Create fixed network
         if NSXV_BACKEND == neutron_backend:
             net_spec = {
                 "network":
                     {
                         "name": DATA_NET_NAME,
-                        "admin_state_up": True
+                        "admin_state_up": True,
+                        "shared": True
                     }
             }
         else:
@@ -214,23 +264,28 @@ def config_network(config_parser, auth_url, user_name, password,
                         "provider:network_type": "flat",
                         "name": DATA_NET_NAME,
                         "provider:physical_network": "dvs",
-                        "admin_state_up": True
+                        "admin_state_up": True,
+                        "shared": True
                     }
             }
         LOG.info("Create data network %s.", DATA_NET_NAME)
         data_network = neutron.create_network(net_spec)['network']
         # Create data subnet
+        # TODO: Create a static subnet as fixed network while using dynamic
+        # credentials.
         subnet_spec = {
             'subnet':
                 {
+                    "name": DATA_NET_NAME,
                     'network_id': data_network['id'],
-                    'cidr': '172.16.10.0/24',
+                    'cidr': DATA_NET_CIDR,
                     'ip_version': 4,
                     'enable_dhcp': True
                 }
         }
         LOG.info("Create %s subnet.", DATA_NET_NAME)
-        neutron.create_subnet(subnet_spec)
+        data_subnet = neutron.create_subnet(subnet_spec)['subnet']
+        data_network['subnets'] = [data_subnet['id']]
     else:
         LOG.info("Found data network %s", DATA_NET_NAME)
     config_parser.set('compute', 'fixed_network_name', DATA_NET_NAME)
@@ -252,6 +307,7 @@ def config_network(config_parser, auth_url, user_name, password,
             subnet_spec = {
                 'subnet':
                     {
+                        "name": EXT_NET_NAME,
                         'network_id': ext_network['id'],
                         'cidr': ext_net_cidr,
                         'ip_version': 4,
@@ -263,6 +319,24 @@ def config_network(config_parser, auth_url, user_name, password,
             }
             LOG.info("Create %s subnet.", EXT_NET_NAME)
             neutron.create_subnet(subnet_spec)
+            LOG.info("Create router %s.", ROUTER_NAME)
+            router_spec = {
+                'router':
+                    {
+                        'name': ROUTER_NAME,
+                        'external_gateway_info':
+                            {
+                                'network_id': ext_network['id']
+                            }
+                    }
+            }
+            router = neutron.create_router(router_spec)['router']
+            LOG.info("Add %s to router %s", DATA_NET_NAME, ROUTER_NAME)
+            add_router_interface_spec = {
+                'subnet_id': data_network['subnets'][0]
+            }
+            neutron.add_interface_router(router['id'],
+                                         add_router_interface_spec)
         else:
             LOG.info("Found external network %s", EXT_NET_NAME)
         config_parser.set('network', 'public_network_id', ext_network['id'])
@@ -270,8 +344,36 @@ def config_network(config_parser, auth_url, user_name, password,
                           'binding, dist-router, multi-provider, provider, '
                           'quotas,external-net, extraroute, router, '
                           'security-group')
-        config_parser.set('network-feature-enabled', 'ipv6', 'false')
-        config_parser.set('network', 'public_network_id', ext_network['id'])
+        config_parser.set('network-feature-enabled',
+                          'port_admin_state_change', 'False')
+        config_parser.set('network-feature-enabled', 'ipv6', 'False')
+        config_parser.set('validation', 'connect_method', 'floating')
+        config_parser.set('network', 'floating_network_name', EXT_NET_NAME)
+        config_parser.set('validation', 'run_validation', 'true')
+    else:
+        config_parser.set('network', 'tenant_network_cidr', DATA_NET_CIDR)
+        config_parser.set('network', 'tenant_network_mask_bits', '24')
+        config_parser.set('validation', 'run_validation', 'false')
+
+
+def config_volume(config_parser, private_vip, user_name, password, tenant_name,
+                  endpoint_type='internalURL'):
+    auth_url = get_auth_url(private_vip)
+    nova = nova_client.Client('2', user_name, password, tenant_name, auth_url,
+                              insecure=True, endpoint_type=endpoint_type)
+    # Get Nova API versions
+    versions = nova.versions.list()
+    if (len(versions) == 1 and
+            versions[0].to_dict().get('status') == 'SUPPORTED'):
+        config_parser.set('volume', 'storage_protocol', 'LSI Logic SCSI')
+
+
+def config_nsx(config_parser, nsx_manager, nsx_user, nsx_pwd):
+    if not config_parser.has_section('nsxv'):
+        config_parser.add_section('nsxv')
+    config_parser.set('nsxv', 'manager_uri', 'http://%s' % nsx_manager)
+    config_parser.set('nsxv', 'user', nsx_user)
+    config_parser.set('nsxv', 'password', nsx_pwd)
 
 
 def config_tempest(private_vip, admin_user, admin_pwd, neutron_backend,
@@ -279,19 +381,23 @@ def config_tempest(private_vip, admin_user, admin_pwd, neutron_backend,
                    alter_user=None, alter_pwd=None, ext_net_cidr=None,
                    ext_net_start_ip=None, ext_net_end_ip=None,
                    ext_net_gateway=None, tempest_log_file=None,
-                   admin_tenant='admin'):
+                   admin_tenant='admin', min_compute_nodes=1, nsx_manager=None,
+                   nsx_user=None, nsx_pwd=None):
     config_parser = ConfigParser.ConfigParser()
     conf_path = '%s/etc/tempest.conf' % TEMPEST_DIR
     config_parser.read(conf_path)
-    auth_url = "http://%s:5000/v2.0/" % private_vip
-    config_identity(config_parser, auth_url, admin_user, admin_pwd,
+    config_identity(config_parser, private_vip, admin_user, admin_pwd,
                     admin_tenant, creds_provider, default_user, default_pwd,
                     alter_user, alter_pwd)
-    config_compute(config_parser, auth_url, admin_user, admin_pwd,
-                   admin_tenant)
-    config_network(config_parser, auth_url, admin_user, admin_pwd,
+    config_compute(config_parser, private_vip, admin_user, admin_pwd,
+                   admin_tenant, min_compute_nodes=min_compute_nodes)
+    config_network(config_parser, private_vip, admin_user, admin_pwd,
                    neutron_backend, admin_tenant, ext_net_cidr,
                    ext_net_start_ip, ext_net_end_ip, ext_net_gateway)
+    if neutron_backend in [NSXT_BACKEND, NSXV_BACKEND]:
+        config_nsx(config_parser, nsx_manager, nsx_user, nsx_pwd)
+    config_volume(config_parser, private_vip, admin_user, admin_pwd,
+                  admin_tenant)
     if tempest_log_file:
         config_parser.set('DEFAULT', 'log_file', tempest_log_file)
     # Configure darshboard
@@ -334,9 +440,9 @@ def generate_run_list(neutron_backend):
         lines = shell.local('./tools/with_venv.sh testr list-tests',
                             raise_error=True)[1]
     # Obtain all tests into a dict {test_name: test_id}
-    all_tests = dict([split_name_and_id(line)
-                     for line in lines.split('\n')
-                     if line.startswith('tempest.')])
+    all_tests = dict([split_name_and_id(line) for line in lines.split('\n')
+                     if line.startswith('tempest.') or
+                     line.startswith('vmware_nsx_tempest.')])
 
     # Get excluded tests into a list [test_name]
     exclude_file = '%s/%s-excluded-tests.txt' % (get_data_path(),
@@ -380,10 +486,6 @@ def generate_run_list(neutron_backend):
         test_list = [test for test in exec_tests
                      if test.startswith(PACKAGE_MAP[key])]
         write_suite_file(key, test_list)
-    # Use neutron include list when it is dvs
-    if neutron_backend == DVS_BACKEND:
-        shell.local('cp -f %s/dvs-included-neutron.txt %s/neutron.txt' %
-                    (get_data_path(), TEMPEST_DIR))
 
 
 def make_reports(report_dir, suite_name):
@@ -393,7 +495,8 @@ def make_reports(report_dir, suite_name):
     shell.local('subunit2junitxml --output-to=%s < %s' % (junit_xml, subunit))
     html_report_file = os.path.join(report_dir, '%s_results.html' % suite_name)
     try:
-        generate_html_report(subunit, html_report_file)
+        shell.local('subunit2html %s %s' % (subunit, html_report_file),
+                    raise_error=True)
         LOG.info('Generated report to %s.' % html_report_file)
     except Exception:
         LOG.exception('Failed to generate report to %s.' % html_report_file)
@@ -407,8 +510,11 @@ def run_test(component, report_dir, parallel=False, rerun_failed=False):
         report_dir = os.path.abspath(report_dir)
     with shell.cd(TEMPEST_DIR):
         LOG.info('Start to run %s tests' % component)
+        start = time.time()
         shell.local("./tools/with_venv.sh testr run %s --subunit --load-list="
                     "%s.txt | subunit2pyunit" % (testr_opts, component))
+        end = time.time()
+        LOG.info('%s tests took %s seconds', component, (end - start))
         make_reports(report_dir, component)
         failed_tests = shell.local('./tools/with_venv.sh testr failing '
                                    '--subunit | subunit-ls')[1]
@@ -416,8 +522,12 @@ def run_test(component, report_dir, parallel=False, rerun_failed=False):
             LOG.info('Failed tests:\n%s', failed_tests)
             if rerun_failed:
                 LOG.info('Rerun above failed tests.')
+                start = time.time()
                 shell.local('./tools/with_venv.sh testr run --failing '
                             '--subunit | subunit2pyunit')
+                end = time.time()
+                LOG.info('Rerun %s failed tests took %s seconds', component,
+                         (end - start))
                 make_reports(report_dir, '%s_rerun' % component)
 
 
@@ -430,16 +540,36 @@ def install_vmware_tempest(
         LOG.info('Clone VMware tempest from repository.')
         shell.local('git clone -b %s %s' % (branch, repository),
                     raise_error=True)
+    # Delete below to use Mitaka tempest after Xiangfei remove dependency to
+    # p3 tempest
+    if os.path.exists('p3-tempest'):
+        LOG.info('P3 tempest already exists, skip cloning.')
+    else:
+        LOG.info('Clone P3 tempest from repository.')
+        shell.local('git clone http://p3-review.eng.vmware.com/tempest '
+                    'p3-tempest', raise_error=True)
+        # copy tempest.conf
+        shell.local('cp -f %s/etc/tempest.conf %s/etc/' %
+                    (TEMPEST_DIR, 'p3-tempest'))
+        # put config in [auth] to [identity]
+        config_parser = ConfigParser.ConfigParser()
+        conf_path = '%s/etc/tempest.conf' % 'p3-tempest'
+        config_parser.read(conf_path)
+        auth_configs = config_parser.items('auth')
+        for auth_config in auth_configs:
+            config_parser.set('identity', auth_config[0], auth_config[1])
+        config_parser.write(open(conf_path, 'w'))
     if not os.path.exists(os.path.join(VMWARE_TEMPEST_DIR, '.venv')):
-        LOG.info('Copy virtual env packages from tempest to VMware tempest.')
-        shell.local('cp -rf %s/.venv %s/' % (TEMPEST_DIR, VMWARE_TEMPEST_DIR))
-    tempest_path = os.path.join(os.getcwd(), TEMPEST_DIR)
+        LOG.info('Create virtual env for VMware tempest.')
+        shell.local('virtualenv %s/.venv' % VMWARE_TEMPEST_DIR)
+    tempest_path = os.path.join(os.getcwd(), 'p3-tempest')
     install_cmd = '''set -ex
     cd {path}
     source .venv/bin/activate
-    pip install -r requirements.txt
-    pip install -r test-requirements.txt
-    pip install -e {tempest_path}
+    pip --no-cache-dir install -e {tempest_path}
+    pip --no-cache-dir install nose
+    pip --no-cache-dir install nose-testconfig
+    pip --no-cache-dir install pyvmomi
     cp -f vmware_tempest.cfg.sample vmware_tempest.cfg
     '''.format(path=VMWARE_TEMPEST_DIR, tempest_path=tempest_path)
     LOG.info('Install VMware tempest dependencies.')

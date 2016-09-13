@@ -22,7 +22,7 @@ class RestClient(object):
         """
         self._server = server
         self._username = username
-        self._password = password
+        self._password = password.replace('+', '%2B')
 
         # TODO Do we need to have logout logic?
         self._session = self._login()

@@ -1,6 +1,7 @@
 import logging
 import time
 
+import oms_utils
 from setup import VIO
 from test import Test
 from test import PASS
@@ -40,8 +41,8 @@ def vio_orchestration(oms_spec, log_dir, cluster_spec=None, tests=None):
         "ext_net_start_ip": "192.168.112.170",
         "ext_net_end_ip": "192.168.112.200",
         "ext_net_gateway": "192.168.112.1",
-        "public_vip_pool": ["192.168.112.201", "192.168.112.202"],
-        "private_vip_pool": ["192.168.111.201", "192.168.111.202"]
+        "public_vip_range": "192.168.112.201-192.168.112.203",
+        "private_vip_range": "192.168.111.201-192.168.111.203"
     }
     :param log_dir: directory deployment and test logs.
     :param cluster_spec: dict spec for creating OpenStack cluster from oms api.
@@ -59,17 +60,24 @@ def vio_orchestration(oms_spec, log_dir, cluster_spec=None, tests=None):
     if cluster_spec:
         LOG.debug('Cluster spec: %s' % cluster_spec)
         vio_setup.deploy_openstack()
+    if 'compute_clusters' in oms_spec \
+            and len(oms_spec['compute_clusters']) > 1:
+        day2_compute_clusters = oms_spec['compute_clusters'][1:]
+        for cluster in day2_compute_clusters:
+            vio_setup.add_compute_cluster(cluster)
     if 'patches' in oms_spec:
-        ip_pool_idex = 0
+        public_vip_range = oms_utils.get_ip_range(oms_spec, 'public_vip_range')
+        private_vip_range = oms_utils.get_ip_range(oms_spec,
+                                                   'private_vip_range')
         for patch in oms_spec['patches']:
             # Applying patches continuously is easy to fail. In real world,
             # user won't apply them like this. So sleep 3 minutes beforehand.
             LOG.debug('Sleep 3 minutes before patching.')
             time.sleep(60 * 3)
             vio_setup.apply_patch(patch)
-            if 'vio-upgrade-' in patch:
-                public_vip = oms_spec['public_vip_pool'][ip_pool_idex]
-                private_vip = oms_spec['private_vip_pool'][ip_pool_idex]
+            if '-upgrade-' in patch:
+                public_vip = public_vip_range.next().format()
+                private_vip = private_vip_range.next().format()
                 cluster_spec = vio_setup.upgrade(public_vip, private_vip)
     if tests:
         LOG.debug('Tests: %s' % tests)

@@ -11,7 +11,10 @@ from panda import cluster_utils
 from panda import logging_utils
 from panda import oms_utils
 from panda import tempest_utils
+from panda import os_utils
 from panda import end_to_end
+from panda.cluster_utils import NSXT_BACKEND
+from panda.cluster_utils import NSXV_BACKEND
 from shellutil import shell
 
 
@@ -78,7 +81,7 @@ def deploy_vio_cluster(args):
 
 def delete_vio_cluster(args):
     oms_ctl = OmsController(args.ip, args.vc_user, args.vc_password)
-    cluster_utils.delete_cluster(oms_ctl)
+    cluster_utils.delete_cluster(oms_ctl, args.name)
 
 
 def install_tempest(args):
@@ -89,6 +92,8 @@ def install_tempest(args):
         params['branch'] = args.branch
     if args.conf_template:
         params['conf_template'] = args.conf_template
+    if args.protocol:
+        params['protocol'] = args.protocol
     tempest_utils.install_tempest(**params)
 
 
@@ -98,6 +103,10 @@ def config_tempest(args):
         return_code = shell.local('ping -c1 %s' % args.private_vip)[0]
         if return_code:
             LOG.error('%s is not reachable.', args.private_vip)
+            return
+        if args.neutron_backend in [NSXV_BACKEND, NSXT_BACKEND] and \
+                (not args.nsx_manager and args.nsx_user and args.nsx_pwd):
+            LOG.error('NSX manager, user and password are required.')
             return
         tempest_utils.config_tempest(private_vip=args.private_vip,
                                      admin_user=args.admin_user,
@@ -111,7 +120,11 @@ def config_tempest(args):
                                      ext_net_cidr=args.ext_cidr,
                                      ext_net_start_ip=args.ext_start_ip,
                                      ext_net_end_ip=args.ext_end_ip,
-                                     ext_net_gateway=args.ext_gateway)
+                                     ext_net_gateway=args.ext_gateway,
+                                     min_compute_nodes=args.compute_nodes,
+                                     nsx_manager=args.nsx_manager,
+                                     nsx_user=args.nsx_user,
+                                     nsx_pwd=args.nsx_pwd)
         tempest_utils.generate_run_list(args.neutron_backend)
     else:
         LOG.error('%s not found. Please run "panda tempest install" first.',
@@ -157,6 +170,13 @@ def run_vmware_tempest(args):
         tempest_utils.run_vmware_test(report_dir)
     else:
         LOG.error('Please run "panda vmware_tempest config" first.')
+
+
+def enable_ldap_admin(args):
+    os_utils.enable_ldap_admin(private_vip=args.private_vip,
+                               local_user_name=args.local_user_name,
+                               local_user_pwd=args.local_user_pwd,
+                               ldap_user_name=args.ldap_user_name)
 
 
 def go(args):
@@ -290,6 +310,9 @@ def add_cluster_parser(sub_parsers):
                                        help='vCenter server user name')
     cluster_remove_parser.add_argument('vc_password',
                                        help='vCenter server password')
+    cluster_remove_parser.add_argument('--name',
+                                       default='VIO',
+                                       help='Cluster name. VIO by default.')
     cluster_remove_parser.set_defaults(func=delete_vio_cluster)
 
 
@@ -303,15 +326,18 @@ def add_tempest_parser(sub_parsers):
         'install', help='install tempest')
     tempest_install_parser.add_argument('--repository',
                                         help='git repository. '
-                                             'http://p3-review.eng.vmware.com'
-                                             '/tempest if ignored.')
+                                             'github.com/openstack/tempest.git'
+                                             ' if ignored.')
     tempest_install_parser.add_argument('--branch',
                                         help='branch name of repository. '
-                                             'master if ignored')
+                                             '11.0.0 if ignored')
     tempest_install_parser.add_argument('--conf-template',
                                         dest='conf_template',
-                                        help='tempest.conf template path. etc/'
-                                             'tempest.conf.sample if ignored')
+                                        help='tempest.conf template path.'
+                                             'default template if ignored')
+    tempest_install_parser.add_argument('--protocol',
+                                        help='protocol of git clone. git, http'
+                                             ' ssh or https.')
     tempest_install_parser.set_defaults(func=install_tempest)
     # configure tempest
     tempest_config_parser = tempest_sub_parsers.add_parser(
@@ -330,7 +356,8 @@ def add_tempest_parser(sub_parsers):
                                        action='store',
                                        default=tempest_utils.DYNAMIC_PROVIDER,
                                        help='Type dynamic for SQL backend. '
-                                            'Type legacy if LDAP backend.')
+                                            'Type pre-provisioned if LDAP '
+                                            'backend or DVS neutron backend.')
     tempest_config_parser.add_argument('--user1',
                                        action='store',
                                        default='default',
@@ -363,6 +390,21 @@ def add_tempest_parser(sub_parsers):
     tempest_config_parser.add_argument('--ext-gateway',
                                        dest='ext_gateway',
                                        help='Edge external network gateway IP')
+    tempest_config_parser.add_argument('--compute-nodes',
+                                       dest='compute_nodes',
+                                       action='store',
+                                       default=1,
+                                       help='Number of compute nodes.')
+    tempest_config_parser.add_argument('--nsx-manager',
+                                       dest='nsx_manager',
+                                       help='IP or hostname of NSX manager.')
+    tempest_config_parser.add_argument('--nsx-user',
+                                       dest='nsx_user',
+                                       help='Admin user name of NSX manager.')
+    tempest_config_parser.add_argument('--nsx-password',
+                                       dest='nsx_pwd',
+                                       help='Admin user password of NSX '
+                                            'manager.')
     tempest_config_parser.set_defaults(func=config_tempest)
     # run tempest
     tempest_config_parser = tempest_sub_parsers.add_parser(
@@ -415,6 +457,27 @@ def add_vmware_tempest_parser(sub_parsers):
                                        help='Dir to generate reports. Current '
                                             'dir by default.')
     tempest_config_parser.set_defaults(func=run_vmware_tempest)
+
+
+def add_os_parser(sub_parsers):
+    # openstack commands
+    os_parser = sub_parsers.add_parser(
+        'openstack', help='Openstack operation.')
+    os_sub_parsers = os_parser.add_subparsers(help='sub commands')
+    # enable ldap user
+    enable_ldap_parser = os_sub_parsers.add_parser(
+        'enable_ldap_admin', help='Enable LDAP admin user. This is required '
+                                  'on multi backend after VIO 3.0.')
+    enable_ldap_parser.add_argument('private_vip',
+                                    help='Private VIP.')
+    enable_ldap_parser.add_argument('local_user_name',
+                                    help='Admin user of local domain.')
+    enable_ldap_parser.add_argument('local_user_pwd',
+                                    help='Admin user password of local domain')
+    enable_ldap_parser.add_argument('ldap_user_name',
+                                    help='Admin user of default domain.')
+    enable_ldap_parser.set_defaults(func=enable_ldap_admin)
+
 
 def add_go_parser(sub_parsers):
     oms_spec = """
@@ -477,6 +540,7 @@ def main():
     add_cluster_parser(sub_parsers)
     add_tempest_parser(sub_parsers)
     add_vmware_tempest_parser(sub_parsers)
+    add_os_parser(sub_parsers)
     add_go_parser(sub_parsers)
     args = panda_parser.parse_args()
     LOG.debug('Arguments: %s' % args)

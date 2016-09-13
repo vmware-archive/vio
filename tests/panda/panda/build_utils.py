@@ -2,7 +2,7 @@ import os
 import logging
 
 from buildwebapi import api as buildapi
-from shellutil import shell
+from task_utils import safe_run
 
 
 LOG = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ def get_patch_url(build_id):
 
 
 def get_upgrade_url(build_id):
-    return get_url(build_id, 'vio-upgrade-')
+    return get_url(build_id, '-upgrade-')
 
 
 def get_url(build_id, deliverable_name):
@@ -71,9 +71,12 @@ def download_file(url, path=None):
         abs_path = os.path.join(path, file_name)
     else:
         abs_path = os.path.join(os.getcwd(), file_name)
-    shell.local("wget --no-verbose -O %s %s" % (abs_path, url),
-                capture=False, raise_error=True)
-    LOG.info('Downloaded %s to %s', url, abs_path)
+    if not os.path.exists(abs_path):
+        cmd = "wget --no-verbose -O %s %s" % (abs_path, url)
+        safe_run(cmd, 'download %s' % url)
+        LOG.info('Downloaded %s to %s', url, abs_path)
+    else:
+        LOG.info('%s already exists, skip downloading it.', abs_path)
     return abs_path
 
 
